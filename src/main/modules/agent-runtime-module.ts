@@ -3,10 +3,12 @@ import type { StudioPlatform } from '../../server/platform/platform'
 import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
+import type { TextGenerationSettings } from '../../shared/text-generation/contract'
 import {
   AgentControlPlaneToken,
   AgentLaunchServiceToken,
   AgentLaunchSettingsToken,
+  ChatRuntimesToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
   ConversationLaunchServiceToken,
@@ -19,6 +21,7 @@ import {
   ModuleStorageToken,
   SprintEngineAuthToken,
   TerminalRuntimeToken,
+  TextGenerationModuleServiceToken,
   WorkspaceContextToken,
   WorkspaceGitInfoToken,
   WorkspaceRegistryToken,
@@ -34,6 +37,11 @@ import { createModuleStorageRegistry } from '../module-host/module-storage'
 import { moduleAppStateMirrorFor } from '../module-host/module-app-state-mirror'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
+import { createModuleTextGenerationRegistry } from '../text-generation/module-text-generation'
+import { createChatRuntimeLister } from '../module-host/module-chat-runtimes'
+import { detectAgentCliAvailability } from '../cli-availability'
+import { listPluginRegistryEntries } from '../plugin-registry-instance'
+import { generateHeadlessText } from '../text-generation/text-generation-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 import { provideHostDataServices } from './host-data-services'
 import { CLOSED_WORKSPACE_HISTORY_FILE, createClosedWorkspaceHistory } from './closed-workspace-history'
@@ -97,6 +105,11 @@ export function createAgentRuntimeModule(
     getModulePermissions: ModulePermissionsResolver
     /** Where module storage and module secrets live, and what the secrets are sealed with. */
     platform: Pick<StudioPlatform, 'paths' | 'secrets'>
+    /**
+     * The person's text-generation setting (the core's mirror of it), which a
+     * module's prompt that names no runtime answers on. Absent, Claude Code.
+     */
+    getTextGenerationSettings?: () => TextGenerationSettings | null
   },
 ): CapabilityModule {
   const { paths, secrets: cipher } = options.platform
@@ -207,6 +220,35 @@ export function createAgentRuntimeModule(
       })
       host.provideService(ConversationModuleServiceToken, () => conversations.registry)
       host.onShutdown(() => conversations.dispose())
+      // The chat runtimes behind MainHost.listChatRuntimes: the rows the
+      // window's own list gives a module's renderer half, built from the
+      // plugin registry, the availability probe (cached, as a launch reads
+      // it), the chat model catalog and the person's last choice.
+      host.provideService(ChatRuntimesToken, () =>
+        createChatRuntimeLister({
+          listClis: () => listPluginRegistryEntries(),
+          availability: () =>
+            detectAgentCliAvailability({
+              cliRuntimes: effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes,
+            }),
+          modelCatalog: services.conversationModelCatalog,
+          lastSelectedCli: () => effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).lastSelectedCli,
+        }),
+      )
+      // Headless text generation behind the SDK's getTextGenerationService:
+      // one prompt answered by the person's own agent CLI (the one they chose
+      // for Studio's text generation, by default), checked per call against
+      // `agents:generate`, in a lane per module.
+      host.provideService(TextGenerationModuleServiceToken, () =>
+        createModuleTextGenerationRegistry({
+          getModulePermissions: options.getModulePermissions,
+          generate: (request) => generateHeadlessText(request),
+          getCliRuntimes: () => effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes,
+          ...(options.getTextGenerationSettings
+            ? { getTextGenerationSettings: options.getTextGenerationSettings }
+            : {}),
+        }),
+      )
       // The brokers behind the SDK's getSecretsService and getGitHubService: a
       // module stores a secret and spends it on the origins it named, or calls
       // the signed-in person's GitHub, without ever holding the value itself.

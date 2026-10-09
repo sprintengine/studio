@@ -130,8 +130,10 @@ section and top-bar item the module registers, so one that throws fails
 | A pick-and-close dialog over the workspace | `registerModalSurface({ launcher })` | — | — |
 | Tools agents call | main: `host.registerMcpTools` | `mcp:tools` | mcp-tools |
 | An agent doing work in a chat | main: `getConversationService(host)` | `conversation:operate` (or `:read`) | chat-companion |
-| Hand the person a prepared chat | `host.openChat({ workspaceId, prompt })` | `conversation:operate` | backlog-action |
-| An agent that runs on a schedule | main: `getScheduledAgentsService(host)` | `scheduled-agents.manage`, `dependsOn: ["scheduled-agents"]` | — |
+| Hand the person a prepared chat | `host.openChat({ workspaceId, prompt, name, dedupeKey })` | `chat:draft` (`conversation:operate` to send it) | backlog-action |
+| Ask a model one question (summary, digest, JSON), no chat | main: `getTextGenerationService(host).generate` | `agents:generate` | — |
+| A background agent returning validated JSON | main: `getCompanionAgentsService(host)`, `runStructured({ tools: 'none' })` | `agents:companion` | — |
+| An agent that runs on a schedule | main: `getScheduledAgentsService(host)` (`tag`, `onRun` to trace runs) | `scheduled-agents.manage`, `dependsOn: ["scheduled-agents"]` | — |
 | Calling an API with a key | main: `getSecretsService(host).fetchWithSecret` | `secrets` | — |
 | Calling GitHub as the user | main: `getGitHubService(host).request` / `.graphql` (read-only) / `.download` (logs) | `github` | — |
 | A workspace's branch and GitHub remote | `host.getWorkspaceGitInfo(workspaceId)` (renderer or main) | `ipc:workspace-read` | — |
@@ -153,7 +155,10 @@ opens one for the person with `host.openChat` in the renderer (a draft by
 default: the person reads and sends it). It never drives the person's own chats
 or another module's; reading the person's chats is the separate, read-only
 `getActivityService(host)` behind the broad `conversation:read-all`
-([api-main.md](references/api-main.md)). There is no API to spawn a terminal agent, run a CLI in a
+([api-main.md](references/api-main.md)). A question with one answer (a summary, a digest, a
+classification) needs no chat at all: `getTextGenerationService(host)`. Read
+what an agent answered with `chats.reply(ref)`, never by joining streamed
+text deltas. There is no API to spawn a terminal agent, run a CLI in a
 pane, or inject into another session — do not look for one, and do not shell
 out to an agent CLI from `entry.main` to get around it. See
 [conversation-api.md](references/conversation-api.md).
@@ -197,8 +202,9 @@ without it answers `false`; degrade with a message instead of throwing.
 
 Declare the fewest that cover what the code does, and nothing "just in case":
 they are what the person reads before trusting the module, and the host
-enforces several (`conversation:*`, `secrets`, `github`, `mcp:tools`,
-`agents:companion`, `module:bridge` for the bridge). Table and meaning of each:
+enforces several (`conversation:*`, `chat:draft`, `secrets`, `github`,
+`mcp:tools`, `agents:companion`, `agents:generate`, `module:bridge` for the
+bridge). Table and meaning of each:
 [permissions.md](references/permissions.md). The smoke test fails when a
 service the module resolves is missing its permission, or one resolved at
 registration is missing its `dependsOn`.

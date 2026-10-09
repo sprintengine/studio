@@ -159,6 +159,10 @@ export type CapabilityPermission =
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service checks this one explicitly at attach time.
   | 'agents:companion'
+  // Send prompts to the person's own agent CLI in the background and read the
+  // answers, with no chat, workspace or tools (`getTextGenerationService`).
+  // Checked on every call.
+  | 'agents:generate'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: the workspace's app-owned `.sprintengine/modules/<id>/`, or
   // per-user app data).
@@ -173,6 +177,10 @@ export type CapabilityPermission =
   // without asking (`allowedTools`). Without it a module's chats go no looser
   // than `auto`, whatever it asks for.
   | 'conversation:bypass'
+  // Open a chat with a prompt drafted in its composer for the person to read
+  // and send (`RendererHost.openChat` without `send`). Nothing more: sending,
+  // reading or driving a chat is `conversation:*`'s.
+  | 'chat:draft'
   // Store secrets the host sends only to origins the module named, never
   // handing the value back (the SDK's scoped secrets service).
   | 'secrets'
@@ -206,10 +214,12 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'scheduled-agents.manage',
   'agents:companion',
+  'agents:generate',
   'storage',
   'conversation:read',
   'conversation:operate',
   'conversation:bypass',
+  'chat:draft',
   'secrets',
   'github',
   'mcp:tools',
@@ -523,6 +533,17 @@ export type MainHost = {
    * does not know, so a module may probe for capabilities newer than its SDK.
    */
   supports(capability: HostCapability): boolean
+  /**
+   * The agent runtimes a chat can run on, as `RendererHost.listChatRuntimes`
+   * lists them for your window half: each runtime's id (what a conversation's
+   * and a scheduled agent's `cli`, and a companion's `engine.cli`, take), its
+   * label, its models and whether it is the person's last choice. A runtime
+   * this machine does not have is listed with `available: false`. Reading it
+   * may probe which CLIs are installed (cached for a minute), so read it when
+   * you need it rather than in a loop. Needs no permission. Check
+   * `host.supports('chat-runtimes')`: an older host has no such method.
+   */
+  listChatRuntimes(): Promise<ModuleChatRuntimeOption[]>
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the Studio gateway, owned by this module's id. A
@@ -831,17 +852,54 @@ export type ScheduledAgentSchedule = {
 /** A skill or an installed MCP server, by id, with the name its chip shows. */
 export type ScheduledAgentAttachment = { id: string; name: string }
 
+/**
+ * Whether the last run started its chat. `workspaceId` and `agentId` name that
+ * chat (a conversation ref your conversation service reaches); `agentId` is
+ * absent on a run recorded by a host from before it was kept.
+ */
 export type ScheduledAgentLastRun =
-  { at: number; ok: true; workspaceId: string } | { at: number; ok: false; message: string }
+  { at: number; ok: true; workspaceId: string; agentId?: string } | { at: number; ok: false; message: string }
+
+/** A run whose chat started: when, and the chat (a conversation ref) it started. */
+export type ScheduledAgentRun = { at: number; workspaceId: string; agentId: string }
 
 /**
  * A scheduled agent: a prompt and a schedule. Each time the schedule comes
  * round, a new chat starts in `folderPath` with `prompt` as its first message,
  * on the machine, CLI, model, permissions, skills, MCP servers and worktree
  * setting recorded here. Nothing carries from one run to the next.
+ *
+ * When a time is missed:
+ * - **The app was closed.** A repeating schedule's missed times are not
+ *   replayed; the next run is counted from when the app starts. A one-time
+ *   schedule whose time passed while the app was closed runs once, as soon as
+ *   the app is open again.
+ * - **The computer slept, with the app open.** The schedule runs once on
+ *   waking, however many of its times passed in the sleep.
+ * - **The previous run is still working** (a turn open, or waiting on an
+ *   approval), or still starting. The time is skipped, not queued: the next
+ *   one counts on from it.
+ *
+ * Each run's chat is owned by the module that created the scheduled agent, so
+ * its conversation service reaches it (`onRun` names the chat), and its
+ * summary carries `scheduledAgentId` and `scheduledAgentTag`.
  */
 export type ScheduledAgent = {
   id: string
+  /**
+   * Its title in the person's sidebar and editor (up to 120 characters).
+   * Absent, the prompt's first line is. Check
+   * `host.supports('scheduled-agent-runs')`.
+   */
+  name?: string
+  /**
+   * Your own label for it (up to 200 characters; the item, task or record it
+   * belongs to), never shown to the person. Each run's chat carries it as
+   * `ModuleConversationSummary.scheduledAgentTag`, so you can tell which of
+   * your schedules a chat came from without putting markers in the prompt.
+   * Check `host.supports('scheduled-agent-runs')`.
+   */
+  tag?: string
   prompt: string
   schedule: ScheduledAgentSchedule
   folderPath: string
@@ -868,9 +926,15 @@ export type ScheduledAgent = {
   lastFailureSeenAt: number | null
 }
 
-/** What a module writes: everything but the bookkeeping. */
+/**
+ * What a module writes: everything but the bookkeeping. On `update`, a draft
+ * without `name` or `tag` keeps the ones the scheduled agent has, and an empty
+ * string clears it.
+ */
 export type ScheduledAgentDraft = Pick<
   ScheduledAgent,
+  | 'name'
+  | 'tag'
   | 'prompt'
   | 'schedule'
   | 'folderPath'
@@ -906,6 +970,17 @@ export type ModuleScheduledAgentsService = {
   runNow(id: string): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
   /** Called with this module's scheduled agents whenever one of them changes. Returns the unsubscriber; call it in `onShutdown`. */
   onChanged(listener: (agents: ScheduledAgentView[]) => void): () => void
+  /**
+   * Called each time one of this module's scheduled agents starts a chat, on
+   * its schedule or by `runNow`, with the scheduled agent as it ran and the
+   * chat (`run.workspaceId`, `run.agentId`: follow it with the conversation
+   * service). A one-time schedule is told before it closes itself, so its run
+   * is heard although `onChanged` never lists it again. A run that failed to
+   * start is not a run; `lastRun` says why. Returns the unsubscriber; call it
+   * in `onShutdown`. Check `host.supports('scheduled-agent-runs')`: an older
+   * host never calls it.
+   */
+  onRun(listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void): () => void
 }
 
 type ScheduledAgentsModuleRegistry = {
@@ -918,6 +993,8 @@ type ScheduledAgentsModuleRegistry = {
     id: string,
   ): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
   onChanged(moduleId: string, listener: (agents: ScheduledAgentView[]) => void): () => void
+  // Absent on a host from before scheduled-agent-runs.
+  onRun?(moduleId: string, listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void): () => void
 }
 
 const scheduledAgentsModuleServiceToken: ServiceToken<ScheduledAgentsModuleRegistry> =
@@ -938,6 +1015,7 @@ export function getScheduledAgentsService(host: MainHost): ModuleScheduledAgents
     list: () => registry.list(moduleId),
     runNow: (id) => registry.runNow(moduleId, id),
     onChanged: (listener) => registry.onChanged(moduleId, listener),
+    onRun: (listener) => (registry.onRun ? registry.onRun(moduleId, listener) : () => {}),
   }
 }
 
@@ -977,7 +1055,15 @@ export type CompanionAgentSpec = {
   name: string
   /** Absolute workspace folder (the main process has no id → folder registry). */
   workspaceRoot: string
-  /** Engine selection; defaults resolve to the workspace's harness CLI/model. */
+  /**
+   * Engine selection. `cli` takes the chat runtime id a conversation's `cli`
+   * takes and `listChatRuntimes()` lists (`claude-code`, `codex`, `cursor`,
+   * `opencode`, `grok`), or the conversation provider id behind it
+   * (`claude-agent`, `codex-agent`, …): both name the same engine, so one id
+   * space covers chats and companions. Absent, Claude Code on `sonnet`; another
+   * engine without a `model` runs its own default model. A runtime id needs
+   * `host.supports('companion-tools')`; an older host takes provider ids only.
+   */
   engine?: { cli?: string; model?: string }
   /** Advisory context roots; the provider resolves knowledge from workspaceRoot. */
   contextRoots?: { knowledge?: boolean }
@@ -993,7 +1079,35 @@ export type CompanionRunStructuredOptions<T> = {
   /** Validator errors are fed back to the agent and the turn retried. Default 1. */
   retries?: number
   onPhase?: (phase: string) => void
+  /**
+   * What the run does when its agent asks to use a tool (an edit, a command,
+   * a web request, an MCP tool; a companion session asks before every one):
+   *
+   * - `none` (the default): the host denies every request, and tells the
+   *   agent before your prompt that it has no tools for this task. Use it for
+   *   anything fed text you did not write (logs, PR comments, transcripts):
+   *   whatever that text says, the agent can only answer.
+   * - `ask`: requests stay open for the person. They arrive in `onEvent` as
+   *   `approval_requested`; show them, and relay the person's answer with
+   *   `respondToApproval`. The run waits until each is answered (or you
+   *   `interrupt`).
+   * - `auto`: the host approves every request, which is as loose as a chat on
+   *   `bypass`. Needs the `conversation:bypass` permission: without it the run
+   *   is refused (the promise rejects, naming the permission), and it is
+   *   refused too while your module serves an MCP tool call from an agent that
+   *   asks before acting.
+   *
+   * Check `host.supports('companion-tools')`: an older host ignores `tools`
+   * and approves every request.
+   */
+  tools?: 'none' | 'ask' | 'auto'
 }
+
+/**
+ * An answer to one approval request the companion's agent raised: allow it
+ * once, or deny it. A rule that outlives the request is the person's to make.
+ */
+export type CompanionApprovalAnswer = { requestId: string; decision: 'once' | 'deny' }
 
 export type CompanionAgentHandle = {
   readonly workspaceId: string
@@ -1003,8 +1117,21 @@ export type CompanionAgentHandle = {
   onStatus(cb: (status: CompanionAgentStatus) => void): () => void
   /** Run a structured JSON task: extract final JSON, validate, retry-once, return typed. */
   runStructured<T>(opts: CompanionRunStructuredOptions<T>): Promise<T>
-  /** A chat turn on the session's own transport. */
+  /**
+   * A chat turn on the session's own transport. Its approvals are left open,
+   * as a structured run's with `tools: 'ask'` are.
+   */
   send(message: string): Promise<void>
+  /**
+   * Relay the person's answer to an approval request that is still open (an
+   * `approval_requested` event's `requestId`): one from a `tools: 'ask'` run
+   * or from a `send` turn. Never answer on the person's behalf. Allowing
+   * (`once`) needs the `conversation:operate` permission, as answering an
+   * approval in a chat does; without it a request can only be denied.
+   * Answers `{ ok: false }` for a request that is not open. Check
+   * `host.supports('companion-tools')`.
+   */
+  respondToApproval(input: CompanionApprovalAnswer): Promise<{ ok: true } | { ok: false; message: string }>
   onEvent(cb: (event: CompanionAgentEvent) => void): () => void
   interrupt(): void
   /** Ends the session; the handle becomes inert. Re-attach spawns a fresh one. */
@@ -1042,7 +1169,20 @@ export function getCompanionAgentsService(host: MainHost): CompanionAgentsServic
   const registry = host.requireService(companionAgentsModuleServiceToken)
   const moduleId = host.moduleId
   return {
-    attach: (spec) => registry.attach(moduleId, spec),
+    attach: (spec) => {
+      const handle: Omit<CompanionAgentHandle, 'respondToApproval'> &
+        Partial<Pick<CompanionAgentHandle, 'respondToApproval'>> = registry.attach(moduleId, spec)
+      if (handle.respondToApproval) return handle as CompanionAgentHandle
+      // A host older than `companion-tools` has no answer to give; say so
+      // rather than leave the module a TypeError.
+      return Object.assign(handle, {
+        respondToApproval: () =>
+          Promise.resolve({
+            ok: false as const,
+            message: `This version of the app has no "respondToApproval"; check host.supports('companion-tools').`,
+          }),
+      })
+    },
   }
 }
 
@@ -2359,9 +2499,12 @@ export type RendererHost = {
   /**
    * Open a chat in a workspace and focus it. By default the prompt lands in the
    * composer as a draft the user sends themselves; `send: true` sends it as the
-   * first turn. Expected failures come back as a result, never a throw
-   * (`unavailable` when this window cannot open chats). Declare
-   * `conversation:operate`.
+   * first turn. `name` titles the chat, and `dedupeKey` focuses the chat this
+   * module already opened under that key instead of opening another (check
+   * `supports('chat.open-options')`). Expected failures come back as a
+   * result, never a throw (`unavailable` when this window cannot open chats).
+   * Declare `chat:draft` to open drafts, or `conversation:operate`, which
+   * `send: true` needs.
    */
   openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
   /**
@@ -2665,6 +2808,18 @@ export {
   type UsageSource,
   type UsageTokens,
 } from './activity.js'
+
+// Agents, conversations and scheduled agents: turn replies and usage, and
+// headless text generation.
+export {
+  getTextGenerationService,
+  type ModuleConversationTurnCompletedPayload,
+  type ModuleConversationTurnUsage,
+  type ModuleTextGenerationErrorCode,
+  type ModuleTextGenerationInput,
+  type ModuleTextGenerationResult,
+  type ModuleTextGenerationService,
+} from './conversation.js'
 
 export {
   getGitHubService,

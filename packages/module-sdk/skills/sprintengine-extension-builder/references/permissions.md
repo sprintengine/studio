@@ -34,8 +34,11 @@ Rules:
 | `backlog.link.open` | Open links and targets attached to Backlog items | A link provider's `openLink` | — |
 | `scheduled-agents.manage` | Schedule agents of its own that start a chat on a timer | `getScheduledAgentsService` | — |
 | `agents:companion` | Run its own background agents inside the workspace | `getCompanionAgentsService` | yes |
-| `conversation:read` | Read the chats it started, including everything the agent says in them | `subscribe`, `transcript`, `list`, `watch` | yes |
-| `conversation:operate` | Start chats with agents, send them messages, and stop them | `openChat`, and every conversation-service call (implies read) | yes |
+| `agents:generate` | Send prompts to your AI models in the background, without opening a chat | `getTextGenerationService` | yes |
+| `conversation:read` | Read the chats it started, including everything the agent says in them | `subscribe`, `follow`, `transcript`, `reply`, `list`, `watch` | yes |
+| `conversation:operate` | Start chats with agents, send them messages, and stop them | `openChat` with `send: true`, every conversation-service call (implies read), allowing a companion's tool call | yes |
+| `conversation:bypass` | Let the agents in its chats edit files and run commands without asking you first | `bypass` chats, `allowedTools`, a companion task with `tools: 'auto'` | yes |
+| `chat:draft` | Open a chat with a message drafted for you to read and send | `openChat` without `send` | yes |
 | `secrets` | Store API keys and send them to the sites it names (the key is never shown back to the extension) | `getSecretsService` | yes |
 | `github` | Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension) | `getGitHubService` (`request`, `graphql`, `download`) | yes |
 | `mcp:tools` | Add tools that agents in your workspaces can call | `registerMcpTools` | yes |

@@ -1,6 +1,7 @@
 // Text generation in the main process: the person's own agent CLI, headless,
-// one shot, under the login it already holds. Two jobs run on it: the chat
-// title, and the title and description the chat's "Create PR" button drafts.
+// one shot, under the login it already holds. Three jobs run on it: the chat
+// title, the title and description the chat's "Create PR" button drafts, and
+// a module's free-text prompt (module-text-generation.ts).
 //
 // What every call guarantees:
 //   - no API key is read or forwarded — the Anthropic key/base-URL variables
@@ -45,9 +46,15 @@ import { listPluginRegistryEntries } from '../plugin-registry-instance'
 import { STRIPPED_ANTHROPIC_AUTH_ENV_KEYS } from '../providers/claude-agent-provider'
 import {
   claudeChatTitleInvocation,
+  claudeTextInvocation,
   codexChatTitleInvocation,
+  codexTextInvocation,
+  codexTextPrompt,
   readClaudeStructuredStdout,
+  readClaudeTextStdout,
+  readCodexTextUsage,
   type ChatTitleInvocation,
+  type ClaudeTextAnswer,
 } from './backends'
 import { runCommand, type RunCommand } from './run-command'
 
@@ -98,6 +105,99 @@ export async function generatePullRequestText(
     },
     deps,
   )
+}
+
+/** One free-text call a module asked for (`getTextGenerationService`). */
+export type HeadlessTextRequest = {
+  prompt: string
+  system?: string
+  /** The CLI, model and effort that answer; the CLI one with a headless backend. */
+  engine: TextGenerationEngine
+  maxOutputTokens?: number
+  cliRuntimes?: TextGenerationCliRuntimeOverrides
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+export type HeadlessTextResult =
+  | { ok: true; text: string; usage: ClaudeTextAnswer['usage']; model: string; ms: number }
+  | Extract<TextGenerationResult, { ok: false }>
+
+/**
+ * A prompt answered as free text by the person's own agent CLI, headless, with
+ * every guarantee a title has: no API key, a scratch directory, one shot.
+ * Claude Code answers on stdout with its tools off and the system prompt as its
+ * own; Codex writes its last message to a file, reports its usage on its JSON
+ * event stream, and reads the system prompt ahead of the prompt.
+ * `maxOutputTokens` caps the answer through the CLI's own output limit.
+ */
+export async function generateHeadlessText(
+  request: HeadlessTextRequest,
+  deps: TextGenerationServiceDeps = {},
+): Promise<HeadlessTextResult> {
+  const now = deps.now ?? Date.now
+  const startedAt = now()
+  const { cli } = request.engine
+  if (!supportsTextGeneration(cli)) {
+    return { ok: false, code: 'unsupported', message: `${cli} has no text generation backend.` }
+  }
+  const model = request.engine.model.trim()
+  if (!model) return { ok: false, code: 'unsupported', message: 'No model was chosen for text generation.' }
+  const binaryPath = await resolveBinary(cli, request.cliRuntimes, deps.detect ?? cachedDetect)
+  if (!binaryPath.ok) return binaryPath
+  if (request.signal?.aborted) return { ok: false, code: 'cancelled', message: `${cli} was stopped.` }
+  const scratch = await mkdtemp(path.join(deps.scratchRoot ?? tmpdir(), SCRATCH_PREFIX))
+  try {
+    const env = engineEnv(cli, deps.env)
+    const run = deps.run ?? runCommand
+    const common = {
+      cwd: scratch,
+      env,
+      timeoutMs: request.timeoutMs ?? DEFAULT_TEXT_GENERATION_TIMEOUT_MS,
+      ...(request.signal ? { signal: request.signal } : {}),
+    }
+    let answer: ClaudeTextAnswer | null
+    if (cli === 'codex') {
+      const outputPath = path.join(scratch, 'last-message.txt')
+      await writeFile(outputPath, '', 'utf8')
+      const outcome = await run({
+        ...codexTextInvocation({
+          binaryPath: binaryPath.path,
+          model,
+          reasoning: request.engine.reasoning,
+          maxOutputTokens: request.maxOutputTokens,
+          outputPath,
+        }),
+        ...common,
+        stdin: request.system ? codexTextPrompt(request.system, request.prompt) : request.prompt,
+      })
+      const failure = runFailure(cli, outcome)
+      if (failure) return failure
+      const text = await readFile(outputPath, 'utf8')
+      answer = text.trim() ? { text, model: null, usage: readCodexTextUsage(outcome.stdout) } : null
+    } else {
+      if (request.maxOutputTokens !== undefined) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(request.maxOutputTokens)
+      const outcome = await run({
+        ...claudeTextInvocation({
+          binaryPath: binaryPath.path,
+          model,
+          reasoning: request.engine.reasoning,
+          ...(request.system ? { system: request.system } : {}),
+        }),
+        ...common,
+        stdin: request.prompt,
+      })
+      const failure = runFailure(cli, outcome)
+      if (failure) return failure
+      answer = readClaudeTextStdout(outcome.stdout)
+    }
+    if (!answer) return { ok: false, code: 'guardrail', message: `${cli} returned no usable answer.` }
+    return { ok: true, text: answer.text, usage: answer.usage, model: answer.model ?? model, ms: now() - startedAt }
+  } catch (error) {
+    return { ok: false, code: 'transport', message: describe(error) }
+  } finally {
+    await rm(scratch, { recursive: true, force: true }).catch(() => undefined)
+  }
 }
 
 /**

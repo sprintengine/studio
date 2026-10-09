@@ -33,10 +33,12 @@ import type {
   ScheduledAgentAttachment as AppScheduledAgentAttachment,
   ScheduledAgentDraft as AppScheduledAgentDraft,
   ScheduledAgentLastRun as AppScheduledAgentLastRun,
+  ScheduledAgentRun as AppScheduledAgentRun,
   ScheduledAgentSchedule as AppScheduledAgentSchedule,
   ScheduledAgentView as AppScheduledAgentView,
   ScheduledAgentWriteResult as AppScheduledAgentWriteResult,
 } from '../../../src/shared/scheduled-agents'
+import type { ScheduledAgentsModuleRegistry as AppScheduledAgentsModuleRegistry } from '../../../src/main/scheduled-agents/service'
 import type { CapabilityPermission as AppCapabilityPermission } from '../../../src/shared/modules/permissions'
 import { KNOWN_CAPABILITY_PERMISSIONS as APP_KNOWN_CAPABILITY_PERMISSIONS } from '../../../src/shared/modules/permissions'
 import type { ModuleBridgeRefusalCode as AppModuleBridgeRefusalCode } from '../../../src/shared/modules/bridge'
@@ -190,6 +192,8 @@ import type {
   ScheduledAgentAttachment as SdkScheduledAgentAttachment,
   ScheduledAgentDraft as SdkScheduledAgentDraft,
   ScheduledAgentLastRun as SdkScheduledAgentLastRun,
+  ScheduledAgentRun as SdkScheduledAgentRun,
+  ModuleScheduledAgentsService as SdkModuleScheduledAgentsService,
   ScheduledAgentSchedule as SdkScheduledAgentSchedule,
   ScheduledAgentView as SdkScheduledAgentView,
   ScheduledAgentWriteResult as SdkScheduledAgentWriteResult,
@@ -393,6 +397,14 @@ expectType<IsExact<AppScheduledAgent, SdkScheduledAgent>>()
 expectType<IsExact<AppScheduledAgentDraft, SdkScheduledAgentDraft>>()
 expectType<IsExact<AppScheduledAgentView, SdkScheduledAgentView>>()
 expectType<IsExact<AppScheduledAgentWriteResult, SdkScheduledAgentWriteResult>>()
+expectType<IsExact<AppScheduledAgentRun, SdkScheduledAgentRun>>()
+// What the app's registry hands a module's `onRun` listener is the SDK's view.
+expectType<
+  IsExact<
+    Parameters<Parameters<AppScheduledAgentsModuleRegistry['onRun']>[1]>,
+    Parameters<Parameters<SdkModuleScheduledAgentsService['onRun']>[0]>
+  >
+>()
 
 // MCP tool contributions: the wire shapes mirror exactly — an
 // optional-property drift on a tool registration would silently change what
@@ -609,6 +621,7 @@ expectType<IsExact<AppRendererHost['hostApiVersion'], SdkRendererHost['hostApiVe
 expectType<IsExact<AppRendererHost['supports'], SdkRendererHost['supports']>>()
 expectType<IsExact<AppRendererHost['openChat'], SdkRendererHost['openChat']>>()
 expectType<IsExact<AppRendererHost['listChatRuntimes'], SdkRendererHost['listChatRuntimes']>>()
+expectType<IsExact<AppMainHost['listChatRuntimes'], SdkMainHost['listChatRuntimes']>>()
 
 expectType<IsExact<appConversation.ModuleConversationEventType, sdk.ModuleConversationEventType>>()
 expectType<IsExact<appConversation.ModuleConversationEvent, sdk.ModuleConversationEvent>>()
@@ -635,6 +648,20 @@ expectType<IsExact<appConversation.ModuleConversationPage, sdk.ModuleConversatio
 expectType<IsExact<appConversation.ModuleConversationStreamFrame, sdk.ModuleConversationStreamFrame>>()
 expectType<IsExact<appConversation.ModuleConversationFollowOptions, sdk.ModuleConversationFollowOptions>>()
 expectType<IsExact<appConversation.ModuleConversationCommandOptions, sdk.ModuleConversationCommandOptions>>()
+// Agents, conversations and scheduled agents: what `turn_completed` documents
+// (the reply text and the usage other services count from) is the protocol's.
+expectType<IsExact<appConversation.ModuleConversationTurnUsage, sdk.ModuleConversationTurnUsage>>()
+expectType<
+  IsExact<appConversation.ModuleConversationTurnCompletedPayload, sdk.ModuleConversationTurnCompletedPayload>
+>()
+expectType<IsExact<protocol.ConversationTurnUsage, sdk.ModuleConversationTurnUsage>>()
+expectType<IsExact<protocol.ConversationTurnCompletedPayload, sdk.ModuleConversationTurnCompletedPayload>>()
+// Headless text generation: the service a module calls, and the registry the
+// host provides under 'text-generation.module-service'.
+expectType<IsExact<appConversation.ModuleTextGenerationInput, sdk.ModuleTextGenerationInput>>()
+expectType<IsExact<appConversation.ModuleTextGenerationErrorCode, sdk.ModuleTextGenerationErrorCode>>()
+expectType<IsExact<appConversation.ModuleTextGenerationResult, sdk.ModuleTextGenerationResult>>()
+expectType<IsExact<appConversation.ModuleTextGenerationService, sdk.ModuleTextGenerationService>>()
 
 // Against the protocol package directly, so a change there fails here even
 // where the app's module contract would let it through.
@@ -675,6 +702,9 @@ type SdkExpectedRegistry<S> = {
 expectType<IsExact<appConversation.ModuleConversationRegistry, SdkExpectedRegistry<sdk.ModuleConversationService>>>()
 expectType<IsExact<appBrokers.ModuleSecretsRegistry, SdkExpectedRegistry<sdk.ModuleSecretsService>>>()
 expectType<IsExact<appBrokers.ModuleGitHubRegistry, SdkExpectedRegistry<sdk.ModuleGitHubService>>>()
+expectType<
+  IsExact<appConversation.ModuleTextGenerationRegistry, SdkExpectedRegistry<sdk.ModuleTextGenerationService>>
+>()
 
 // ── Backlog, usage and activity services ────────────────────────────────────
 // Every shape exact, except where the app hands out its own Backlog item: the
@@ -795,6 +825,7 @@ const SDK_SERVICE_TOKEN_KEYS = [
   'backlog.module-service',
   'usage.module-service',
   'activity.module-service',
+  'text-generation.module-service',
 ] as const
 const sdkRuntime = ['index.js', 'conversation.js', 'brokers.js', 'backlog.js', 'activity.js']
   .map((file) => readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8'))

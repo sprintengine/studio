@@ -84,6 +84,10 @@ export type CapabilityPermission =
   // companion service DOES check this one explicitly at attach time (there is no
   // shared runtime gate to inherit), so a module must declare it to attach.
   | 'agents:companion'
+  // Send prompts to the person's own agent CLI in the background and read the
+  // answers, with no chat, workspace or tools (the SDK's text generation
+  // service). Checked on every call.
+  | 'agents:generate'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: workspace sidecar `modules/<id>/` or per-user app data).
   | 'storage'
@@ -98,6 +102,10 @@ export type CapabilityPermission =
   // Without it a module's chats go no looser than `auto`, whatever it asks
   // for; checked on every create and every preset switch.
   | 'conversation:bypass'
+  // Open a chat with a prompt drafted in its composer, for the person to read
+  // and send (`RendererHost.openChat` without `send`). Checked on every call;
+  // sending the prompt still needs `conversation:operate`.
+  | 'chat:draft'
   // Store secrets the host sends only to origins the module named with them,
   // never handing the value back to module code.
   | 'secrets'
@@ -138,10 +146,12 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'scheduled-agents.manage',
   'agents:companion',
+  'agents:generate',
   'storage',
   'conversation:read',
   'conversation:operate',
   'conversation:bypass',
+  'chat:draft',
   'secrets',
   'github',
   'mcp:tools',
@@ -169,10 +179,12 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'backlog.link.open': 'Open links and targets attached to Backlog items',
   'scheduled-agents.manage': 'Schedule agents of its own that start a chat on a timer',
   'agents:companion': 'Run its own background agents inside the workspace',
+  'agents:generate': 'Send prompts to your AI models in the background, without opening a chat',
   storage: 'Save its own data in the workspace folder and app data',
   'conversation:read': 'Read the chats it started, including everything the agent says in them',
   'conversation:operate': 'Start chats with agents, send them messages, and stop them',
   'conversation:bypass': 'Let the agents in its chats edit files and run commands without asking you first',
+  'chat:draft': 'Open a chat with a message drafted for you to read and send',
   secrets: 'Store API keys and send them to the sites it names (the key is never shown back to the extension)',
   github: 'Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension)',
   'mcp:tools': 'Add tools that agents in your workspaces can call',

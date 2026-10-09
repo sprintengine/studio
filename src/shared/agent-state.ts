@@ -233,6 +233,15 @@ export type AgentState = {
   // is retried finds the chat its first attempt made rather than making a
   // second. Set once at launch and never edited.
   launchCommandId?: string
+  // The key the owning module opened this chat under (`openChat`'s
+  // `dedupeKey`), so asking again focuses it instead of opening another. Set
+  // once, beside `ownerModuleId`, and never edited.
+  moduleChatKey?: string
+  // The tag of the scheduled agent whose run started this chat
+  // (`ScheduledAgent.tag`), beside its workspace's `scheduledAgentId`, so the
+  // extension that made the schedule can tell its runs apart. Set once, at the
+  // run's launch, and never edited.
+  scheduledAgentTag?: string
 }
 
 type AgentBacklogItemRef = {

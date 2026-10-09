@@ -65,6 +65,13 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'workspace-git-info',
   'workspace-history',
   'main-app-state',
+  // Agents, conversations and scheduled agents.
+  'companion-tools',
+  'conversation-replies',
+  'text-generation',
+  'conversation-worktrees',
+  'chat-runtimes',
+  'scheduled-agent-runs',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

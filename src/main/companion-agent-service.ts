@@ -23,7 +23,18 @@
 //     (turn_completed / turn_failed), not phase inference.
 //   - Status honesty. `status()` folds from the same conversation-session
 //     projection the Sessions popover reads; `absent` = not present.
+//   - Tools are asked about. A companion session starts on `manual`, so every
+//     edit, command, web request and MCP tool raises an approval, and a
+//     structured run's `tools` policy decides what happens to it: `none` (the
+//     default) denies it and tells the agent up front it has no tools, `ask`
+//     leaves it open for the person, `auto` approves it. A module's `auto`
+//     needs `conversation:bypass`, because approving every tool call is what
+//     that permission discloses (createCompanionAgentsModuleRegistry).
 
+import type { CliPermissionPreset } from '../shared/cli-permission-preset'
+import { CONVERSATION_DEFAULT_MODEL_ID, conversationProviderForCli } from '../shared/conversation-harness'
+import { ceilingAllowsUnaskedTools } from '../shared/permission-ceiling'
+import { moduleToolCallerCeiling } from './module-host/module-tool-caller'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -71,7 +82,12 @@ type CompanionAgentSpec = {
    * ConversationStartSessionInput requires.
    */
   workspaceRoot: string
-  /** Engine selection; resolves to a provider/model pair (defaults claude-agent/sonnet). */
+  /**
+   * Engine selection; resolves to a provider/model pair (defaults claude-agent/sonnet).
+   * `cli` takes a chat runtime id (`claude-code`, `codex`: what `listChatRuntimes()`
+   * lists and a conversation's `cli` takes) or a conversation provider id
+   * (`claude-agent`, `codex-agent`); both name the same engine.
+   */
   engine?: { cli?: string; model?: string }
   /** Advisory context roots. The provider already resolves knowledge from workspaceRoot. */
   contextRoots?: { knowledge?: boolean }
@@ -81,13 +97,29 @@ type CompanionAgentSpec = {
 
 type CompanionValidateResult<T> = { ok: true; value: T } | { ok: false; errors: string[] }
 
+/**
+ * What a structured run does with an approval its agent raises: `none` denies
+ * it (and the agent is told up front it has no tools), `ask` leaves it open
+ * for the person, `auto` approves it.
+ */
+type CompanionToolPolicy = 'none' | 'ask' | 'auto'
+
+const COMPANION_TOOL_POLICIES: ReadonlySet<string> = new Set<CompanionToolPolicy>(['none', 'ask', 'auto'])
+
 type CompanionRunStructuredOptions<T> = {
   prompt: string
   validate: (raw: unknown) => CompanionValidateResult<T>
   /** Validator errors are fed back to the agent and the turn retried. Default 1. */
   retries?: number
   onPhase?: (phase: string) => void
+  /** What the run does with the agent's tool approvals. Default `none`. */
+  tools?: CompanionToolPolicy
 }
+
+/** An answer to one open approval request: allow it once, or deny it. */
+type CompanionApprovalAnswer = { requestId: string; decision: 'once' | 'deny' }
+
+type CompanionApprovalResult = { ok: true } | { ok: false; message: string }
 
 type Unsubscribe = () => void
 
@@ -98,6 +130,11 @@ type CompanionAgentHandle = {
   onStatus(cb: (status: CompanionAgentStatus) => void): Unsubscribe
   runStructured<T>(opts: CompanionRunStructuredOptions<T>): Promise<T>
   send(message: string): Promise<void>
+  /**
+   * Answer an approval the agent raised and nothing has answered: one a
+   * structured run with `tools: 'ask'` left open, or one a chat turn raised.
+   */
+  respondToApproval(input: CompanionApprovalAnswer): Promise<CompanionApprovalResult>
   onEvent(cb: (event: ConversationEvent) => void): Unsubscribe
   interrupt(): void
   dispose(): void
@@ -131,7 +168,7 @@ class CompanionTurnError extends Error {
 type StructuredRunCollector = {
   sessionId: string
   text: string
-  autoApprove: boolean
+  tools: CompanionToolPolicy
   settle: (result: { ok: true; text: string } | { ok: false; message: string }) => void
   settled: boolean
 }
@@ -154,6 +191,9 @@ type CompanionEntry = {
   statusListeners: Set<(status: CompanionAgentStatus) => void>
   eventListeners: Set<(event: ConversationEvent) => void>
   activeCollector: StructuredRunCollector | null
+  // Approval requests the session raised that nothing has answered yet: what
+  // `respondToApproval` may answer.
+  openApprovals: Set<string>
   // The last turn's sendTurn promise. A run resolves on the turn-end EVENT, but
   // the runtime clears the session's pending-request lock only when sendTurn's
   // promise settles — so a clean sequential turn (a retry, a chat after a run)
@@ -175,14 +215,36 @@ export type CreateCompanionAgentServiceOptions = {
 
 const DEFAULT_PROVIDER_ID = 'claude-agent'
 const DEFAULT_MODEL_ID = 'sonnet'
+// The preset a companion session runs on: every edit, command, web request and
+// MCP tool raises an approval, so the run's tool policy is what decides.
+const COMPANION_PERMISSION_PRESET: CliPermissionPreset = 'manual'
+// Said before a `tools: 'none'` run's prompt, so the agent does not spend the
+// turn on tool calls that are each going to be denied.
+const NO_TOOLS_NOTE =
+  'You have no tools for this task: do not call any tool, and do not try to read or change files. Answer from what this message gives you.'
 // A start answers within a handful of events; the cap only bounds a runtime
 // that emits on the key without end while the start hangs.
 const MAX_PENDING_START_EVENTS = 256
 
+/**
+ * The provider an engine's `cli` names: a chat runtime id (`claude-code`) maps
+ * to the provider that drives it as a chat (`claude-agent`), so a module uses
+ * one id space for its conversations and its companions; anything else is
+ * taken as a provider id already.
+ */
+export function companionProviderIdFor(cli: string | undefined): string {
+  const id = cli?.trim()
+  if (!id) return DEFAULT_PROVIDER_ID
+  return conversationProviderForCli(id) ?? id
+}
+
 function defaultEngineDefaults(engine?: CompanionAgentSpec['engine']): { providerId: string; modelId: string } {
+  const providerId = companionProviderIdFor(engine?.cli)
   return {
-    providerId: engine?.cli?.trim() || DEFAULT_PROVIDER_ID,
-    modelId: engine?.model?.trim() || DEFAULT_MODEL_ID,
+    providerId,
+    // `sonnet` is a Claude alias; another engine runs its own default model.
+    modelId:
+      engine?.model?.trim() || (providerId === DEFAULT_PROVIDER_ID ? DEFAULT_MODEL_ID : CONVERSATION_DEFAULT_MODEL_ID),
   }
 }
 
@@ -220,28 +282,32 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
       for (const listener of entry.eventListeners) listener(redacted)
     }
 
+    // What is still open to answer: an approval stays open until it resolves
+    // or its turn ends, however that happens.
+    const requestId = typeof event.payload?.requestId === 'string' ? event.payload.requestId : null
+    if (event.type === 'approval_requested' && requestId && event.payload?.autoApproved !== true) {
+      entry.openApprovals.add(requestId)
+    } else if (event.type === 'approval_resolved' && requestId) {
+      entry.openApprovals.delete(requestId)
+    } else if (event.type === 'turn_completed' || event.type === 'turn_failed' || event.type === 'session_closed') {
+      entry.openApprovals.clear()
+    }
+
     // Drive an in-flight structured run off the raw turn-end events.
     const collector = entry.activeCollector
     if (collector && event.sessionId === collector.sessionId) {
       if (event.type === 'content_delta') {
         const text = typeof event.payload?.text === 'string' ? event.payload.text : ''
         if (text) collector.text += text
-      } else if (event.type === 'approval_requested' && collector.autoApprove) {
-        // A structured run is autonomous; resolve the tool approval so the turn
-        // can reach turn_completed. Deferred to a microtask so we never re-enter
-        // the runtime mid-emit. Chat sends (send()) do NOT auto-approve.
-        const requestId = typeof event.payload?.requestId === 'string' ? event.payload.requestId : null
-        if (requestId && entry.sessionId) {
+      } else if (event.type === 'approval_requested') {
+        // The run's policy answers the approval so the turn can reach its end:
+        // `auto` allows it, `none` denies it, and `ask` leaves it for the
+        // person. Deferred to a microtask so we never re-enter the runtime
+        // mid-emit. Chat sends (send()) answer nothing: those are the person's.
+        if (requestId && entry.sessionId && collector.tools !== 'ask' && event.payload?.autoApproved !== true) {
           const sessionId = entry.sessionId
-          queueMicrotask(() => {
-            const prior = entry.pendingSend
-            const response = runtime.respondToRequest({ sessionId, requestId, approved: true })
-            // A stateless approval opens a separate continuation stream. The
-            // next validation retry must wait for both streams to drain.
-            entry.pendingSend = Promise.all([prior, response])
-              .then(() => undefined)
-              .catch(() => undefined)
-          })
+          const approved = collector.tools === 'auto'
+          queueMicrotask(() => void answerApproval(entry, sessionId, requestId, approved))
         }
       } else if (event.type === 'turn_completed') {
         settleCollector(collector, { ok: true, text: collector.text })
@@ -257,6 +323,46 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
     }
 
     notifyStatus(entry)
+  }
+
+  // One answer to an open approval, through the runtime. A stateless provider
+  // takes an answer as a separate continuation stream, and the next turn (a
+  // validation retry) must wait for both streams to drain.
+  function answerApproval(
+    entry: CompanionEntry,
+    sessionId: string,
+    requestId: string,
+    approved: boolean,
+  ): Promise<ConversationSessionActionResult> {
+    entry.openApprovals.delete(requestId)
+    const prior = entry.pendingSend
+    const response = runtime
+      .respondToRequest({ sessionId, requestId, approved })
+      .catch((error: unknown): ConversationSessionActionResult => ({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      }))
+    entry.pendingSend = Promise.all([prior, response])
+      .then(() => undefined)
+      .catch(() => undefined)
+    return response
+  }
+
+  async function respondToApproval(
+    entry: CompanionEntry,
+    input: CompanionApprovalAnswer,
+  ): Promise<CompanionApprovalResult> {
+    if (entry.disposed) return { ok: false, message: 'Companion agent is disposed.' }
+    const requestId = typeof input?.requestId === 'string' ? input.requestId : ''
+    if (input?.decision !== 'once' && input?.decision !== 'deny') {
+      return { ok: false, message: '"decision" must be "once" or "deny".' }
+    }
+    const sessionId = entry.sessionId
+    if (!sessionId || !requestId || !entry.openApprovals.has(requestId)) {
+      return { ok: false, message: `No approval request "${requestId}" is waiting on this companion.` }
+    }
+    const answered = await answerApproval(entry, sessionId, requestId, input.decision === 'once')
+    return answered.ok ? { ok: true } : { ok: false, message: answered.message }
   }
 
   function settleCollector(
@@ -300,6 +406,7 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
           agentId: entry.spec.agentId,
           providerId,
           modelId,
+          permissionPreset: COMPANION_PERMISSION_PRESET,
         })
         if (!started.ok) {
           throw new Error(`Companion session could not start: ${started.message}`)
@@ -361,7 +468,7 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
   // works for both stateless providers (which end the stream at an approval,
   // then complete via respondToRequest) and stateful providers (mid-turn
   // approvals, single streaming sendTurn).
-  async function runTurn(entry: CompanionEntry, message: string): Promise<string> {
+  async function runTurn(entry: CompanionEntry, message: string, tools: CompanionToolPolicy): Promise<string> {
     // Serialize behind a prior clean turn (whose lock clears only when its
     // sendTurn settles) and any fire-and-forget interrupt still clearing state.
     if (entry.pendingSend) await entry.pendingSend.catch(() => undefined)
@@ -372,7 +479,7 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
     const collector: StructuredRunCollector = {
       sessionId,
       text: '',
-      autoApprove: true,
+      tools,
       settle: done.resolve,
       settled: false,
     }
@@ -402,16 +509,18 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
 
   async function runStructured<T>(entry: CompanionEntry, opts: CompanionRunStructuredOptions<T>): Promise<T> {
     if (entry.disposed) throw new Error('Companion agent is disposed.')
+    const tools = opts.tools ?? 'none'
+    if (!COMPANION_TOOL_POLICIES.has(tools)) throw new Error('"tools" must be "none", "ask" or "auto".')
     await ensureSpawned(entry)
     // One writer: a second concurrent structured run interrupts the first.
     if (entry.activeCollector) await interruptEntry(entry)
 
     const maxRetries = Math.max(0, opts.retries ?? 1)
-    let message = consumePreamble(entry, opts.prompt)
+    let message = consumePreamble(entry, tools === 'none' ? `${NO_TOOLS_NOTE}\n\n${opts.prompt}` : opts.prompt)
     let lastErrors: string[] = []
     for (let attempt = 0; ; attempt += 1) {
       opts.onPhase?.(attempt === 0 ? 'running' : 'retrying')
-      const text = await runTurn(entry, message)
+      const text = await runTurn(entry, message, tools)
       opts.onPhase?.('validating')
       const raw = extractJson(text)
       if (raw !== undefined) {
@@ -459,6 +568,7 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
     if (!wasAbsent) for (const listener of entry.statusListeners) listener('absent')
     entry.statusListeners.clear()
     entry.eventListeners.clear()
+    entry.openApprovals.clear()
   }
 
   function buildHandle(entry: CompanionEntry): CompanionAgentHandle {
@@ -473,6 +583,7 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
       },
       runStructured: (opts) => runStructured(entry, opts),
       send: (message) => send(entry, message),
+      respondToApproval: (input) => respondToApproval(entry, input),
       onEvent: (cb) => {
         entry.eventListeners.add(cb)
         return () => entry.eventListeners.delete(cb)
@@ -502,6 +613,7 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
         statusListeners: new Set(),
         eventListeners: new Set(),
         activeCollector: null,
+        openApprovals: new Set(),
         pendingSend: null,
         pendingInterrupt: null,
         handle: undefined as unknown as CompanionAgentHandle,
@@ -523,6 +635,15 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
 // (`companionAgentIdFor`): a module picks its companion's id, and without the
 // namespace two modules picking the same one — or one picking the id of a chat
 // the person already has — would share a conversation.
+//
+// The handle it gives a module checks the two answers to an agent's tool call
+// that let the agent act: a structured run with `tools: 'auto'` approves every
+// one, which is as loose as `bypass`, so it needs `conversation:bypass` (and is
+// refused while the module serves a capped agent's tool call, as `allowedTools`
+// is); and allowing one with `respondToApproval` is relaying the person's
+// answer, as a module does for its chats, so it needs `conversation:operate`.
+// Without either, a module's companion acts only by what it says. Read per
+// call, never cached, like every other permission check.
 export type CompanionAgentsModuleRegistry = {
   attach(moduleId: string, spec: CompanionAgentSpec): CompanionAgentHandle
 }
@@ -531,16 +652,67 @@ export function createCompanionAgentsModuleRegistry(input: {
   service: CompanionAgentService
   /** The permissions the module declared in its manifest (disclosure list). */
   getModulePermissions: (moduleId: string) => readonly string[] | undefined
+  /** The ceiling of the agent whose tool call into the module is running, if any. */
+  getCallerPermissionCeiling?: () => CliPermissionPreset | null
 }): CompanionAgentsModuleRegistry {
+  const callerCeiling = input.getCallerPermissionCeiling ?? moduleToolCallerCeiling
+  // One module handle per app handle, so a second attach of the same companion
+  // is the same handle here too.
+  const handles = new WeakMap<CompanionAgentHandle, CompanionAgentHandle>()
+  const declared = (moduleId: string): readonly string[] => input.getModulePermissions(moduleId) ?? []
+
+  function moduleHandle(moduleId: string, handle: CompanionAgentHandle): CompanionAgentHandle {
+    return {
+      workspaceId: handle.workspaceId,
+      agentId: handle.agentId,
+      status: () => handle.status(),
+      onStatus: (cb) => handle.onStatus(cb),
+      runStructured: (opts) => {
+        if (opts?.tools === 'auto') {
+          const permissions = declared(moduleId)
+          const ceiling: CliPermissionPreset = permissions.includes('conversation:bypass') ? 'bypass' : 'auto'
+          if (!ceilingAllowsUnaskedTools(ceiling, callerCeiling())) {
+            return Promise.reject(
+              new Error(
+                permissions.includes('conversation:bypass')
+                  ? `Module "${moduleId}" cannot run a companion task with tools: 'auto' while it serves an agent's tool call that asks before acting.`
+                  : `Module "${moduleId}" must declare the "conversation:bypass" permission to run a companion task with tools: 'auto', which approves every tool call without asking.`,
+              ),
+            )
+          }
+        }
+        return handle.runStructured(opts)
+      },
+      send: (message) => handle.send(message),
+      respondToApproval: async (answer) => {
+        if (answer?.decision === 'once' && !declared(moduleId).includes('conversation:operate')) {
+          return {
+            ok: false,
+            message: `Module "${moduleId}" must declare the "conversation:operate" permission to allow a tool call; without it a companion's approvals can only be denied.`,
+          }
+        }
+        return handle.respondToApproval(answer)
+      },
+      onEvent: (cb) => handle.onEvent(cb),
+      interrupt: () => handle.interrupt(),
+      dispose: () => handle.dispose(),
+    }
+  }
+
   return {
     attach(moduleId, spec) {
-      const declared = input.getModulePermissions(moduleId) ?? []
-      if (!declared.includes('agents:companion')) {
+      if (!declared(moduleId).includes('agents:companion')) {
         throw new Error(
           `Module "${moduleId}" must declare the "agents:companion" permission to attach a companion agent.`,
         )
       }
-      return input.service.attach({ ...spec, agentId: companionAgentIdFor(moduleId, spec.agentId) })
+      const handle = input.service.attach({ ...spec, agentId: companionAgentIdFor(moduleId, spec.agentId) })
+      let wrapped = handles.get(handle)
+      if (!wrapped) {
+        wrapped = moduleHandle(moduleId, handle)
+        handles.set(handle, wrapped)
+      }
+      return wrapped
     },
   }
 }
@@ -627,13 +799,15 @@ function lastIndexOfAny(text: string, chars: string[]): number {
 
 // Redact secret-shaped keys from an event payload before it crosses IPC to a
 // chat UI. Mirrors the runtime's on-disk redaction; token-usage numeric fields
-// are preserved. Live listeners would otherwise receive un-redacted payloads
-// (the runtime only redacts what it persists).
+// (`inputTokens`, `cacheReadTokens`, …) are preserved. Live listeners would
+// otherwise receive un-redacted payloads (the runtime only redacts what it
+// persists).
 export function redactEvent(event: ConversationEvent): ConversationEvent {
   if (!event.payload) return event
   return JSON.parse(
     JSON.stringify(event, (key, value) => {
-      if (key === 'inputTokens' || key === 'outputTokens' || key === 'totalTokens') return value
+      // A count of tokens is a number and never a credential.
+      if (/tokens$/i.test(key) && typeof value === 'number') return value
       if (typeof key === 'string' && /secret|token|api[-_]?key|authorization/i.test(key)) return '[redacted]'
       return value
     }),

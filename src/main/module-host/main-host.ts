@@ -9,6 +9,7 @@ import { MODULE_EVENTS_CHANNEL, validateModuleEventTopic, type ModuleEventEnvelo
 import type { CapabilityManifest, ModuleFileDigests } from '../../shared/modules/manifest'
 import type { ModuleWorkspaceGitInfoResult } from '../../shared/modules/workspace-view'
 import { coreMcpToolConflict, mcpToolWireName, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import type { ModuleChatRuntimeOption } from '../../shared/modules/conversation-service'
 import {
   MODULE_NOTIFICATIONS_RECENT_CHANNEL,
   validateModuleNotifyInput,
@@ -153,11 +154,17 @@ export const THIRD_PARTY_SERVICE_KEYS: ReadonlySet<string> = new Set([
   'backlog.module-service',
   'usage.module-service',
   'activity.module-service',
+  'text-generation.module-service',
 ])
 
 // The declarations that open the renderer→module-main bridge for a module's
 // channels: its own scope, and the broad legacy one it was split out of.
 const BRIDGE_PERMISSIONS: ReadonlySet<string> = new Set(['module:bridge', 'ipc:invoke'])
+
+// The app-internal service behind `MainHost.listChatRuntimes` (the agent
+// runtime module provides it, as ChatRuntimesToken). A host method rather than
+// a published token: every module may read it, with no permission to declare.
+export const CHAT_RUNTIMES_SERVICE_KEY = 'core.chat-runtimes'
 
 const defaultSkillRegistry: ModuleSkillHostRegistry = {
   register: registerModuleSkills,
@@ -173,6 +180,12 @@ export type MainHost = {
   readonly hostApiVersion: number
   /** Whether this host provides `capability` now; false for names it does not know. */
   supports(capability: HostCapability): boolean
+  /**
+   * The agent runtimes a chat can run on, as the renderer's `listChatRuntimes`
+   * lists them, with the ones this machine lacks marked unavailable. Empty
+   * when the agent runtime module provides no list.
+   */
+  listChatRuntimes(): Promise<ModuleChatRuntimeOption[]>
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the always-on Studio gateway. Registrations are
@@ -774,6 +787,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         // A bell row needs a client to reach: true only where delivery is wired.
         if (capability === 'notifications') return options.deliverModuleNotification !== undefined
         return hostSupports(capability)
+      },
+      async listChatRuntimes() {
+        const list = services.get(CHAT_RUNTIMES_SERVICE_KEY)?.value as
+          (() => Promise<ModuleChatRuntimeOption[]>) | undefined
+        return list ? list() : []
       },
       registerIpc(channel, handler) {
         const existing = channels.get(channel)

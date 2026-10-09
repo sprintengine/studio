@@ -57,7 +57,7 @@ bell: see [api-main.md](api-main.md).
 
 | Method | Notes |
 | --- | --- |
-| `openChat({ workspaceId, prompt?, skills?, cli?, model?, send? })` | Opens and focuses a new chat in the workspace. Default `send: false`: the prompt is a draft the person sends. Resolves `{ ok: true, agentId }` or `{ ok: false, code, message }` (`permission_missing`, `unknown_workspace`, `workspace_folder_missing`, `cli_not_conversational`, `unavailable`) — never throws for those. Needs `conversation:operate`. |
+| `openChat({ workspaceId, prompt?, skills?, cli?, model?, send?, name?, dedupeKey? })` | Opens and focuses a new chat in the workspace. Default `send: false`: the prompt is a draft the person sends. `name` titles the chat; `dedupeKey` focuses the chat this module already opened under that key (`existing: true`) instead of opening another. Resolves `{ ok: true, agentId, existing? }` or `{ ok: false, code, message }` (`permission_missing`, `unknown_workspace`, `workspace_folder_missing`, `cli_not_conversational`, `unavailable`, `invalid_input`) — never throws for those. A draft needs `chat:draft` (or `conversation:operate`); `send: true` needs `conversation:operate`. `name`/`dedupeKey`: `supports('chat.open-options')`. |
 | `listChatRuntimes()` | `[{ id, label, available, models, lastSelected }]` for a picker; pass `id` as `cli`. |
 | `focusTab({ workspaceId, kind: 'chat' \| 'file', id })` | Focus a chat by agent id (from `openChat` or the conversation service) or a file by workspace-relative path. |
 

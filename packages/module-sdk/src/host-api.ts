@@ -37,6 +37,26 @@ export type HostCapability =
   | 'conversation-permissions'
   | 'chat.open'
   | 'companion-agents'
+  // ── Agents, conversations and scheduled agents ──
+  // A companion's structured run takes `tools` ('none' by default, 'ask',
+  // 'auto'), its handle `respondToApproval`, and its engine a chat runtime id.
+  | 'companion-tools'
+  // `turn_completed` carries `text` and `usage`, and the conversation service
+  // has `reply(ref, turnId?)`.
+  | 'conversation-replies'
+  // `getTextGenerationService(host).generate`: one prompt, no chat.
+  | 'text-generation'
+  // The conversation service's `create` takes `worktree`.
+  | 'conversation-worktrees'
+  // `RendererHost.openChat` takes `name` and `dedupeKey`, and a draft needs
+  // only `chat:draft`. A renderer's, answered live like `chat.open`.
+  | 'chat.open-options'
+  // `MainHost.listChatRuntimes()`.
+  | 'chat-runtimes'
+  // Scheduled agents take `name` and `tag`, `lastRun` names its chat's
+  // `agentId`, the service has `onRun`, and a run's chat summary carries
+  // `scheduledAgentId` and `scheduledAgentTag`.
+  | 'scheduled-agent-runs'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'

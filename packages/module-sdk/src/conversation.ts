@@ -25,6 +25,9 @@ export type ModuleConversationEventType =
   | 'usage_updated'
   | 'context_compacted'
   | 'command_output'
+  // The turn ended. Its payload carries `ModuleConversationTurnCompletedPayload`:
+  // `text` (the agent's last message) and `usage` (what the turn spent) where
+  // the provider can say them, beside `costUsd`.
   | 'turn_completed'
   | 'turn_failed'
   | 'subagent_status'
@@ -44,6 +47,45 @@ export type ModuleConversationEvent = {
   type: ModuleConversationEventType
   createdAt: number
   payload?: Record<string, unknown>
+}
+
+/**
+ * What one turn spent, in tokens, summed over every model request it made
+ * (tool rounds included). `inputTokens` is only the input the model read
+ * fresh; the prompt cache's share is `cacheReadTokens`, and what the turn
+ * wrote to the cache is `cacheWriteTokens`, so the four add up to everything
+ * the turn sent and received. A member the provider cannot report is absent,
+ * never zero: Claude Code and Codex report all four, an ACP agent (Cursor,
+ * OpenCode, Grok) what its own protocol carries.
+ */
+export type ModuleConversationTurnUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+}
+
+/**
+ * The documented members of a `turn_completed` event's payload. Event payloads
+ * stay `Record<string, unknown>` (read them defensively; a member is additive
+ * and a host or provider may leave it out), and these are the ones worth
+ * reading:
+ *
+ * - `text`: the agent's last message of the turn, which is what the person
+ *   reads as its answer (not its narration between tool calls). Absent when
+ *   the turn ended without one. `reply(ref)` reads it for you.
+ * - `usage`: what the turn spent (`ModuleConversationTurnUsage`).
+ * - `costUsd`: what the turn cost, where the provider prices it.
+ *
+ * `host.supports('conversation-replies')` says the host records `text` and
+ * `usage`.
+ */
+export type ModuleConversationTurnCompletedPayload = {
+  turnId?: string
+  text?: string
+  usage?: ModuleConversationTurnUsage
+  costUsd?: number
+  durationMs?: number
 }
 
 export type ModuleConversationStatus = 'starting' | 'ready' | 'active' | 'awaiting_approval' | 'stopped' | 'failed'
@@ -101,6 +143,14 @@ export type ModuleConversationSummary = ModuleConversationRef & {
   permissionPreset?: ModuleConversationPermissionPreset
   /** The agent CLI's own mode at that preset, when one other than the preset's own. */
   permissionMode?: string
+  /**
+   * The id of the scheduled agent whose run started this chat (one of your
+   * module's: a run's chat is owned by the module that made the schedule),
+   * and the `tag` you gave that scheduled agent. Absent on every other chat.
+   * Check `host.supports('scheduled-agent-runs')`.
+   */
+  scheduledAgentId?: string
+  scheduledAgentTag?: string
 }
 
 /**
@@ -155,6 +205,11 @@ export type ModuleConversationErrorCode =
   | 'agent_write_failed'
   | 'conversation_start_failed'
   | 'runtime_refused'
+  // `reply`: the conversation has no finished turn (with that id).
+  | 'no_reply'
+  // `create` with `worktree`: the project is not a git repository, or the
+  // worktree could not be made.
+  | 'worktree_unavailable'
 
 export type ModuleConversationCreateInput = {
   workspaceId: string
@@ -185,6 +240,20 @@ export type ModuleConversationCreateInput = {
   allowedTools?: string[]
   /** As `ModuleConversationCommandOptions`: a retried create finds the chat the first one made. */
   commandId?: string
+  /**
+   * Start the chat in a fresh git worktree of `workspaceId`'s project instead
+   * of its checkout, the way a scheduled agent's run with a worktree starts:
+   * cut from the project's default branch (from the worktree pool where the
+   * app keeps one), on branch `agent/<name>-<suffix>` (the short suffix keeps
+   * each chat's branch its own; absent `name`, `agent/chat-<suffix>`), in a
+   * new workspace of its own marked as a worktree of the project. The answer's
+   * `workspaceId` is that new workspace, so address the chat by it. The chat
+   * waits in the sidebar rather than taking the window. A project that is not
+   * a git repository answers `worktree_unavailable`, and nothing is started.
+   * Check `host.supports('conversation-worktrees')`: an older host ignores it
+   * and starts the chat in the checkout.
+   */
+  worktree?: { name?: string }
 }
 
 export type ModuleConversationResult<T = object> =
@@ -286,13 +355,27 @@ export type ModuleConversationService = {
     options?: ModuleConversationCommandOptions,
   ): Promise<ModuleConversationResult<{ modelId: string; notice?: string }>>
   stop(ref: ModuleConversationRef): Promise<ModuleConversationResult>
-  /** Live events from now on. Returns the unsubscriber. */
+  /**
+   * Live events from now on. Returns the unsubscriber.
+   *
+   * A chat the host does not know yet is attached to all the same: at startup
+   * a saved chat's workspace may not be loaded, and its events are delivered
+   * from the moment it is. A ref that names no chat of this module's delivers
+   * nothing, ever. Throws only for a mistake in the call: no
+   * `conversation:read`, or a ref without a `workspaceId` and `agentId`.
+   * (A host from before this answered an unknown chat by throwing `not_owned`.)
+   */
   subscribe(ref: ModuleConversationRef, cb: (event: ModuleConversationEvent) => void): () => void
   /**
    * Follow the conversation with no gap: a snapshot, or only the events after
    * a cursor the module already holds, then a `synchronized` fence, then live
    * events (see `ModuleConversationStreamFrame`). Render what you cached
    * first, then follow from its cursor. Returns the unsubscriber.
+   *
+   * Like `subscribe`, a chat the host does not know yet is followed from the
+   * moment it is (its snapshot comes then), and a ref naming no chat of this
+   * module's delivers nothing. Throws for no `conversation:read`, a malformed
+   * ref or cursor, or a known chat whose workspace has no project folder.
    */
   follow(
     ref: ModuleConversationRef,
@@ -300,6 +383,18 @@ export type ModuleConversationService = {
     onFrame: (frame: ModuleConversationStreamFrame) => void,
   ): () => void
   transcript(ref: ModuleConversationRef): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>>
+  /**
+   * The reply of a finished turn: the last one's, or `turnId`'s (a
+   * `turn_started` / `turn_completed` payload's `turnId`). It is the agent's
+   * last message of that turn (`turn_completed`'s `text`); for a turn recorded
+   * before the host said it, the text the turn streamed. Answers `no_reply`
+   * while no turn (or not that one) has finished. Covered by
+   * `conversation:read`. Check `host.supports('conversation-replies')`.
+   */
+  reply(
+    ref: ModuleConversationRef,
+    turnId?: string,
+  ): Promise<ModuleConversationResult<{ turnId: string; text: string }>>
   list(filter?: { workspaceId?: string }): ModuleConversationSummary[]
   /** `cb` fires once with the current list, then on every change. Returns the unsubscriber. */
   watch(
@@ -337,7 +432,7 @@ function notOnThisHost(
 }
 
 // The methods a host may be older than.
-type LaterMethods = 'setPermissionPreset' | 'setModel' | 'answerQuestion' | 'resolvePlan' | 'follow'
+type LaterMethods = 'setPermissionPreset' | 'setModel' | 'answerQuestion' | 'resolvePlan' | 'follow' | 'reply'
 
 /**
  * The scoped conversation service for `host`'s module. The raw host registry
@@ -394,6 +489,8 @@ export function getConversationService(host: MainHost): ModuleConversationServic
       return () => {}
     },
     transcript: (ref) => registry.transcript(moduleId, ref),
+    reply: (ref, turnId) =>
+      registry.reply ? registry.reply(moduleId, ref, turnId) : notOnThisHost('reply', 'conversation-replies'),
     list: (filter) => registry.list(moduleId, filter),
     watch: (filter, cb) => registry.watch(moduleId, filter, cb),
   }
@@ -411,12 +508,32 @@ export type ModuleOpenChatInput = {
   /**
    * Send the prompt as the chat's first turn. Default false: the prompt lands
    * in the composer as a draft the user reads and sends themselves.
+   *
+   * A draft needs `chat:draft` or `conversation:operate`; `send: true` needs
+   * `conversation:operate`, since it puts words in the agent's ear the person
+   * has not read.
    */
   send?: boolean
+  /**
+   * The chat's title in its tab and the sidebar ("Fix CI on acme/app#12"), up
+   * to 120 characters; absent, a name from the shared pool. Check
+   * `host.supports('chat.open-options')`.
+   */
+  name?: string
+  /**
+   * Your own key for this chat (up to 200 characters), so asking again focuses
+   * it instead of opening a second: when this module already opened a chat in
+   * the workspace with the same key and it is still there, that chat comes to
+   * the front and the answer says `existing: true`. Nothing else in the input
+   * is applied to it: its draft stays the person's and nothing is sent. Check
+   * `host.supports('chat.open-options')`.
+   */
+  dedupeKey?: string
 }
 
 export type ModuleOpenChatResult =
-  | { ok: true; agentId: string }
+  /** `existing`: the chat `dedupeKey` named, focused rather than opened. */
+  | { ok: true; agentId: string; existing?: true }
   | {
       ok: false
       code:
@@ -425,12 +542,17 @@ export type ModuleOpenChatResult =
         | 'workspace_folder_missing'
         | 'cli_not_conversational'
         | 'unavailable'
+        | 'invalid_input'
       message: string
     }
 
 /** One agent runtime a chat can run on, as a picker row. */
 export type ModuleChatRuntimeOption = {
-  /** Runtime id to pass as `openChat`'s `cli` (e.g. 'claude', 'codex'). */
+  /**
+   * The chat runtime id: what `openChat`'s and `create`'s `cli`, a scheduled
+   * agent's `cli` and a companion's `engine.cli` take (`claude-code`, `codex`,
+   * `cursor`, `opencode`, `grok`).
+   */
   id: string
   label: string
   /** Whether this machine has the runtime; missing ones are listed so a picker can show them disabled. */
@@ -439,4 +561,105 @@ export type ModuleChatRuntimeOption = {
   models: { id: string; label: string }[]
   /** True for the runtime the user last chose — what a picker should preselect. */
   lastSelected: boolean
+}
+
+// ── Headless text generation (main) ──────────────────────────────────────────
+
+/**
+ * One prompt for `getTextGenerationService(host).generate`.
+ *
+ * - `prompt`: the message, up to 400,000 characters.
+ * - `system`: a system prompt the call runs under, up to 40,000 characters.
+ * - `cli`: the chat runtime id to answer on: `claude-code` or `codex`, the
+ *   runtimes the app can drive headlessly (another answers `unsupported`).
+ *   Absent, the runtime the person chose for Studio's own text generation in
+ *   Settings, else `claude-code`.
+ * - `model`: a model id the runtime takes (`claude-haiku-4-5`, an alias such as
+ *   `haiku`, `gpt-5.6-luna`). Absent, the person's chosen model when the call
+ *   runs on their chosen runtime, else that runtime's small default
+ *   (`claude-haiku-4-5` for Claude Code, `gpt-5.6-luna` for Codex).
+ * - `maxOutputTokens`: a cap on the answer, 1 to 64,000.
+ * - `json`: the answer must be one JSON value. The model is told so, the host
+ *   reads the value out of its reply, and `text` is that value serialised;
+ *   a reply with no JSON in it answers `invalid_output`.
+ */
+export type ModuleTextGenerationInput = {
+  prompt: string
+  system?: string
+  model?: string
+  maxOutputTokens?: number
+  json?: boolean
+  cli?: string
+}
+
+/**
+ * Why a call has no answer. `busy`: the module already has two calls running
+ * and eight waiting, or made thirty in the last minute; `unavailable`: the
+ * runtime is not installed or could not be probed; `invalid_output`: the model
+ * answered with nothing usable (or no JSON, when `json` was asked for).
+ */
+export type ModuleTextGenerationErrorCode =
+  | 'permission_missing'
+  | 'invalid_input'
+  | 'unsupported'
+  | 'unavailable'
+  | 'busy'
+  | 'timeout'
+  | 'failed'
+  | 'invalid_output'
+
+/**
+ * The answer: its `text`, the `usage` the call spent (as a conversation turn
+ * reports it) and the `model` that answered.
+ */
+export type ModuleTextGenerationResult =
+  | { ok: true; text: string; usage: ModuleConversationTurnUsage; model: string }
+  | { ok: false; code: ModuleTextGenerationErrorCode; message: string }
+
+/**
+ * One prompt answered in the background by the person's own agent CLI (Claude
+ * Code or Codex), under the sign-in it already holds: no workspace, no chat
+ * tab, nothing in the person's history. For a summary, a classification, a standup digest —
+ * anything that is a question and an answer rather than work in a project.
+ *
+ * Declare `agents:generate` (checked on every call) and check
+ * `host.supports('text-generation')`. Each module has its own lane: two calls
+ * run at once and up to eight wait their turn; past that, or past thirty calls
+ * a minute, a call answers `busy` straight away. Every call is bounded in time
+ * and answers `timeout` rather than hang.
+ */
+export type ModuleTextGenerationService = {
+  generate(input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult>
+}
+
+type ModuleTextGenerationRegistry = {
+  generate(moduleId: string, input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult>
+}
+
+// A literal for the same reason as the conversation token above.
+const textGenerationModuleServiceToken: ServiceToken<ModuleTextGenerationRegistry> = {
+  key: 'text-generation.module-service',
+}
+
+/** The scoped text generation service for `host`'s module (see `ModuleTextGenerationService`). */
+export function getTextGenerationService(host: MainHost): ModuleTextGenerationService {
+  // A host from before the service refuses its key outright; that is the same
+  // answer as a host that has it switched off.
+  let registry: ModuleTextGenerationRegistry | undefined
+  try {
+    registry = host.getService(textGenerationModuleServiceToken)
+  } catch {
+    registry = undefined
+  }
+  const moduleId = host.moduleId
+  return {
+    generate: (input) =>
+      registry
+        ? registry.generate(moduleId, input)
+        : Promise.resolve({
+            ok: false,
+            code: 'unsupported',
+            message: `This version of the app cannot generate text; check host.supports('text-generation').`,
+          }),
+  }
 }
