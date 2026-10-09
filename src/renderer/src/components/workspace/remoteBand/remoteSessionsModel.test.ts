@@ -23,6 +23,9 @@ import {
   remoteWorkspaceName,
   shouldBrowse,
   unattachedConversations,
+  interleaveChats,
+  chatRecencyOf,
+  type RemoteConversation,
 } from './remoteSessionsModel'
 import { test } from 'vitest'
 
@@ -584,4 +587,34 @@ test('chats on a paired machine are rows of their own, with the presence their p
   assert.equal(remoteFinishUnseen({ ...finish, lastTurnEndedAt: null }), false, 'never finished a turn')
   assert.equal(remoteFinishUnseen({ ...finish, activity: 'working' }), false)
   assert.equal(remoteFinishUnseen({ ...finish, activity: 'needs-input' }), false)
+})
+
+test('interleaveChats: a paired machine’s chats sit among the local ones by when each was last written to', () => {
+  const local = (id: string, lastUserMessageAt: number) =>
+    ({ id, createdAt: 0, lastUserMessageAt }) as unknown as Workspace
+  const remote = (key: string, recencyAt: number) => ({ key, recencyAt }) as unknown as RemoteConversation
+  const order = (entries: ReturnType<typeof interleaveChats>) =>
+    entries.map((entry) => (entry.kind === 'local' ? entry.workspace.id : entry.conversation.key))
+
+  assert.deepEqual(
+    order(interleaveChats([local('hour', 9_000), local('days', 1_000)], [remote('now', 10_000), remote('mid', 5_000)])),
+    ['now', 'hour', 'mid', 'days'],
+    'a remote chat written to just now leads a local one two days quiet',
+  )
+  assert.deepEqual(
+    order(interleaveChats([local('a', 5_000)], [remote('b', 9_000), remote('c', 10_000)])),
+    ['b', 'c', 'a'],
+    'the machine’s own order is kept, not re-sorted here',
+  )
+  assert.deepEqual(order(interleaveChats([local('a', 5_000)], [remote('b', 5_000)])), ['a', 'b'], 'a tie goes local')
+
+  // A chat opened here from a paired machine, then written to on that machine:
+  // its own clock here never heard, but the machine's did.
+  const opened = local('opened', 1_000)
+  const attached = new Map([['opened', { agents: [{ lastUserMessageAt: 20_000 }] } as unknown as RemoteConversation]])
+  assert.deepEqual(
+    order(interleaveChats([local('hour', 9_000), opened], [remote('now', 10_000)], chatRecencyOf(attached))),
+    ['opened', 'now', 'hour'],
+    'an opened remote chat is as recent as its machine says it was written to',
+  )
 })
