@@ -41,6 +41,24 @@ export type {
 // Who a `user_message` came from when it was not the person (`origin`).
 export { readConversationMessageOrigin } from '../../packages/conversation-protocol/src/public'
 
+/**
+ * A file one of a conversation's tool calls is reading or editing, or did a
+ * moment ago: what the Files tree marks while the agent works. One entry per
+ * path, so a patch across three files is three.
+ */
+export type ConversationFileActivity = {
+  /** Absolute and `/`-separated, a relative path placed against the root the agent runs in. */
+  path: string
+  verb: 'reading' | 'editing'
+  /** The tool call. */
+  toolUseId: string
+  /** The call that spawned the agent doing it, for a spawned agent's step; absent for the conversation's own. */
+  laneId?: string
+  startedAt: number
+  /** Absent while the call runs. */
+  endedAt?: number
+}
+
 export type ConversationSessionSummary = {
   sessionId: string
   workspaceId: string
@@ -92,6 +110,12 @@ export type ConversationSessionSummary = {
   // it: when it goes cold and what a cold resume re-caches
   // (shared/prompt-cache.ts). Absent for a provider that reports no cache.
   promptCache?: import('./prompt-cache').PromptCacheReading
+  // The files the conversation's tool calls are reading and editing, and the
+  // ones they finished with in the last minute (shared/conversation/
+  // fileActivity.ts): what the Files tree marks. Absent when there are none,
+  // and from a server built before it existed, which the tree reads as an
+  // agent touching nothing.
+  fileActivity?: ConversationFileActivity[]
   // The preset currently in force, when the session carries one. Absent means
   // the session never set one and the provider passes no permission override,
   // as `none` does. Changing it mid-conversation goes through

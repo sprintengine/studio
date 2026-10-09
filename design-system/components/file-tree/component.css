@@ -188,6 +188,46 @@
   opacity: 0.8;
 }
 
+/* ── Agent trail ─────────────────────────────────────────────────────────
+ * Where an agent is at work: the file it is reading or editing, and each
+ * closed folder on the way down to one. A wash on the ROW (the wash channel;
+ * it stands in for a declared role's while it is there), and a trailing group
+ * in the trail's ink: the verb on a file, the count on a folder, and the
+ * agent's own mark on the row it is on right now, all in the trail's violet
+ * (agent-trail.*). Selection still wins the fill. An open folder carries none of it: the rows under it say it. */
+.ds-file-tree-row--agent-reading {
+  background: var(--sem-color-agent-trail-soft);
+}
+
+.ds-file-tree-row--agent-editing {
+  background: var(--sem-color-agent-trail-soft-strong);
+}
+
+.ds-file-tree-agent {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  margin-left: auto;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-agent-trail-ink);
+}
+
+.ds-file-tree-agent + .ds-file-tree-badge {
+  margin-left: 0;
+}
+
+.ds-file-tree-agent-verb {
+  padding: 0 var(--sem-space-xs);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-agent-trail-soft-strong);
+}
+
+.ds-file-tree-agent svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
 /* ── Pinned row ──────────────────────────────────────────────────────────
  * The open file when it is NOT under the root, for as long as it is the open
  * file. It sits between the band and the tree, outside the tree's scroll, so

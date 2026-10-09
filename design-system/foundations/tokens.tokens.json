@@ -156,6 +156,16 @@
         "$value": "#8957e5",
         "$description": "Merged-branch purple, constant across modes (GitHub-family semantic). Source: --tone-merged."
       },
+      "violet-300": {
+        "$type": "color",
+        "$value": "#b49af0",
+        "$description": "Light violet for ink on dark surfaces. Source: dark sem.color.agent-trail.ink."
+      },
+      "violet-600": {
+        "$type": "color",
+        "$value": "#6e3fd1",
+        "$description": "Deep violet for ink on light surfaces. Source: light sem.color.agent-trail.ink."
+      },
       "gray-500": {
         "$type": "color",
         "$value": "#6b7280",
@@ -1077,6 +1087,57 @@
                 "light": "#ffc93c",
                 "dark": "#8a6d10"
               }
+            }
+          }
+        }
+      },
+      "agent-trail": {
+        "ink": {
+          "$type": "color",
+          "$value": "{ref.color.violet-600}",
+          "$description": "Ink of the agent trail in the Files tree: the verb, the count and the agent's mark on a row an agent is at work on (file-tree component.md, Agent trail). Deep violet on light, light violet on dark, so it clears AA as 11px text on its own wash.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "agent-trail",
+              "use": "The trailing group of a file-tree row an agent is reading or editing.",
+              "doNotUse": "Status, selection, the accent, a file's name (that is its git tint), or a file-type glyph (mark.violet).",
+              "components": [
+                "file-tree"
+              ],
+              "modes": {
+                "light": "{ref.color.violet-600}",
+                "dark": "{ref.color.violet-300}"
+              }
+            }
+          }
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "rgba(137, 87, 229, 0.12)",
+          "$description": "Wash of a file-tree row an agent is reading, and of a closed folder leading to one: violet at 12%.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "agent-trail",
+              "use": "The row wash of the agent trail's reading state.",
+              "doNotUse": "Selection, banners, or any fill that is not the agent trail.",
+              "components": [
+                "file-tree"
+              ]
+            }
+          }
+        },
+        "soft-strong": {
+          "$type": "color",
+          "$value": "rgba(137, 87, 229, 0.22)",
+          "$description": "Wash of a file-tree row an agent is editing, and the fill of the trail's verb: violet at 22%.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "agent-trail",
+              "use": "The row wash of the agent trail's editing state, and the pill behind its verb.",
+              "doNotUse": "Selection, banners, or any fill that is not the agent trail.",
+              "components": [
+                "file-tree"
+              ]
             }
           }
         }

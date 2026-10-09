@@ -54,6 +54,7 @@ import { cliRuntimesOnPlatform, distroOfHostId, type ExecutionHostId } from '../
 import { wslInputInRootSpelling } from '../shared/host-paths'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { isTurnlessSubagentStep, readSubagentStatus } from '../shared/conversation/subagents'
+import { applyFileActivityEvent } from '../shared/conversation/fileActivity'
 import {
   readToolDetail,
   writeToolDetail,
@@ -2343,6 +2344,10 @@ export class ConversationRuntime {
       }
     if (event.type === 'session_updated' && typeof event.payload?.revertedAfterSeq === 'number')
       session.revertedNote = `Files were ${event.payload.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${event.payload.revertedAfterSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
+    // The files its tool calls touch, a background agent's included: the Files
+    // tree marks where the work is, whoever in the conversation is doing it.
+    const fileActivity = applyFileActivityEvent(session.fileActivity ?? [], event, session.workspaceRoot)
+    if (fileActivity) session.fileActivity = fileActivity.length > 0 ? fileActivity : undefined
     // A background agent's step between turns is not what the conversation is
     // doing: it would name a tool while the conversation sits idle.
     const ownStep = !isTurnlessSubagentStep(event)
@@ -3988,6 +3993,7 @@ export class ConversationRuntime {
         ? { turnStartedAt: session.turnStartedAt }
         : {}),
       ...(session.promptCache ? { promptCache: session.promptCache } : {}),
+      ...(session.fileActivity?.length ? { fileActivity: session.fileActivity } : {}),
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.
       ...(permissionPreset ? { permissionPreset } : {}),
