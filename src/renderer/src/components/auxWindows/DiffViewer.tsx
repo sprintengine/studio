@@ -18,6 +18,15 @@ import { useBranchSteps } from './useBranchSteps'
 import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { buildDiffFileList, findDiffFocusIndex, type DiffFileItem } from './diffFileList'
+import {
+  countViewed,
+  diffViewedKey,
+  fingerprintDiffContent,
+  isDiffViewed,
+  nextUnviewedIndex,
+  withViewedMark,
+} from './diffViewedMarks'
+import { useDiffViewedMarks } from './useDiffViewedMarks'
 import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex, takesNavigationKey } from './diffNavigation'
 import {
   Checkbox,
@@ -320,6 +329,31 @@ async function loadDiffContent(repoRoot: string, item: DiffFileItem): Promise<Di
   if (index.tooLarge) return { state: 'too-large' }
   if (index.binary || worktree.binary) return { state: 'binary' }
   return { state: 'ready', original: index.content, modified: worktree.content, language }
+}
+
+/**
+ * A cheap answer to "may this file's diff have changed?", for the viewed
+ * marks: its size and time on disk, and for a staged diff the index's too,
+ * since staging more of a file changes the index and not the file. A commit
+ * step between two revisions never changes. Null when it cannot be told,
+ * which reads the file again.
+ */
+async function probeDiffItem(repoRoot: string, item: DiffFileItem): Promise<string | null> {
+  const branch = item.kind === 'branch' ? (item as BranchDiffItem) : null
+  if (branch && branch.modifiedRev !== 'worktree') return 'revisions'
+  const stamp = async (path: string) => {
+    const stat = await window.api.statPath(path)
+    return `${stat.sizeBytes}@${stat.modifiedAtMs}`
+  }
+  try {
+    const file = await stamp(item.path)
+    if (item.kind !== 'staged') return file
+    // A linked worktree's `.git` is a file, and its index lives elsewhere:
+    // that stat fails, and the staged diff is read every time.
+    return `${file}|${await stamp(joinFilePath(repoRoot, '.git/index'))}`
+  } catch {
+    return null
+  }
 }
 
 // The two buttons that write the sticky `diffOpensInWindow` preference
@@ -708,6 +742,38 @@ export function DiffViewer({
   const currentItem = currentIndex >= 0 ? (items[currentIndex] ?? null) : null
 
   const [content, setContent] = useState<DiffContent>({ state: 'loading' })
+  // Viewed marks (diffViewedMarks.ts): working-tree and commit-step files can
+  // be ticked off as read; a tour's stops are the agent's, not a review list.
+  const viewedEnabled = !tourState.items
+  const viewed = useDiffViewedMarks({
+    repoRoot: viewedEnabled ? (gitRoot ?? repoRoot) : null,
+    items,
+    revision: treeRevision,
+    ready: repoState === 'ready',
+    complete: !branchSteps && !filterList && !pendingList && !narrowing,
+    active: visible,
+    currentKey: currentItem ? diffViewedKey(currentItem) : null,
+    load: (item) => loadDiffContent(repoRoot, item),
+    probe: (item) => probeDiffItem(repoRoot, item),
+  })
+  // Which file the content on screen was read for: a step keeps the previous
+  // file's diff drawn while the next one loads, and that diff must not be
+  // measured against the next file's mark.
+  const [contentFor, setContentFor] = useState<string | null>(null)
+  const currentKey = currentItem ? diffViewedKey(currentItem) : null
+  const contentFingerprint = useMemo(
+    () => (contentFor !== null && contentFor === currentKey ? fingerprintDiffContent(content) : null),
+    [content, contentFor, currentKey],
+  )
+  const noteViewedContent = viewed.noteContent
+  useEffect(() => {
+    if (currentItem && contentFingerprint !== null) noteViewedContent(currentItem, contentFingerprint)
+    // The fingerprint is what moves; the item is read with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentFingerprint, noteViewedContent])
+  const currentViewed =
+    Boolean(currentItem) && contentFingerprint !== null && isDiffViewed(viewed.marks, currentItem!, contentFingerprint)
+  const viewedCount = countViewed(viewed.marks, items)
   // Read by the target effect, which has to know what is on screen without
   // depending on it — depending on `content` would re-read the diff every time
   // the diff was read.
@@ -814,8 +880,11 @@ export function DiffViewer({
     }
     setContent(next)
     hunkIndexRef.current = 0
+    const loadingFor = diffViewedKey(currentItem)
     void loadDiffContent(repoRoot, currentItem).then((next) => {
-      if (loadSeqRef.current === token) setContent(next)
+      if (loadSeqRef.current !== token) return
+      setContent(next)
+      setContentFor(loadingFor)
     })
   }, [
     repoRoot,
@@ -860,6 +929,7 @@ export function DiffViewer({
       // this the slower (older) read is free to land second.
       if (liveSeqRef.current !== liveToken) return
       setContent((previous) => (sameDiffContent(previous, next) ? previous : next))
+      setContentFor(diffViewedKey(item))
     })
   }, [liveRevision, repoRoot])
 
@@ -1127,7 +1197,23 @@ export function DiffViewer({
   }, [handleNavigationKey, variant])
 
   const positionLabel =
-    items.length > 0 && currentIndex >= 0 ? `File ${currentIndex + 1} of ${items.length}` : 'No changes'
+    items.length > 0 && currentIndex >= 0
+      ? `File ${currentIndex + 1} of ${items.length}${currentViewed ? ', viewed' : ''}`
+      : 'No changes'
+
+  // Ticking a file off moves on to the next one not yet read, the way a
+  // reviewed file folds away; the last one stays where it is.
+  const toggleViewed = (next: boolean) => {
+    if (!currentItem || contentFingerprint === null) return
+    viewed.setViewed(currentItem, contentFingerprint, next)
+    if (!next) return
+    const after = nextUnviewedIndex(
+      withViewedMark(viewed.marks, currentItem, contentFingerprint, true),
+      items,
+      currentIndex,
+    )
+    if (after >= 0) goToFileIndex(after)
+  }
 
   const openInWindow = useCallback(() => {
     const target = currentItem ?? items[0]
@@ -1778,7 +1864,12 @@ export function DiffViewer({
               {header.base.text}
             </span>
           ) : null}
-          <span className="truncate text-[color:var(--text-muted)]" title={relativePath ?? undefined}>
+          <span
+            // A file ticked off as viewed reads quieter, so the eye goes to
+            // what is left.
+            className={`truncate ${currentViewed ? 'text-[color:var(--text-subtle)]' : 'text-[color:var(--text-muted)]'}`}
+            title={relativePath ?? undefined}
+          >
             {relativePath ?? 'Git Diff'}
           </span>
           {tour.renamedFrom ? (
@@ -1827,6 +1918,20 @@ export function DiffViewer({
             >
               {header.current.text}
             </span>
+          ) : null}
+          {viewedEnabled && currentItem ? (
+            <>
+              <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums text-[color:var(--text-muted)]">
+                {viewedCount} of {items.length} viewed
+              </span>
+              <Checkbox
+                label="Viewed"
+                className="shrink-0"
+                checked={currentViewed}
+                disabled={contentFingerprint === null}
+                onChange={toggleViewed}
+              />
+            </>
           ) : null}
         </div>
       </div>

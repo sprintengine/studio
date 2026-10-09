@@ -9,6 +9,13 @@
   `MAX_TOOL_IMAGES`) by `readImagePaths`. The full and the incremental
   projection read it alike; a step that returned none has no member.
 
+- The working row carries `latestThought`, the first sentence of the newest
+  thinking or prose between the running turn's steps, and the `turnId` whose
+  fold it sits under, so a view can say why the agent is doing what the line
+  says while those steps are folded. Absent while the agent replies.
+  `reasoningPreview`, `firstThoughtSentence` and `latestTurnThought` are the
+  readers.
+
 - A user entry carries `files`, the files the message attached by path, read
   from a `user_message`'s `files` member (`{ path }` each), and a local turn
   passes its own through. `parseConversationAttachedFiles` is the reader and

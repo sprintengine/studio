@@ -96,6 +96,10 @@ import {
 } from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createQuitConfirmationStore } from './quit-confirmation-store'
+import { createAgentNotificationsStore } from './agent-notifications-store'
+import { agentBrowserToolGate, createAgentBrowserToolsStore } from './agent-browser-tools-store'
+import { createAgentNotifier } from './agent-notifications'
+import type { ChatLink } from '../shared/deep-link'
 import { createKeepAwakeStore } from './keep-awake-store'
 import { createAgentKeepAwake, terminalAgentWorking } from './agent-keep-awake'
 import { countWorkingTerminalAgents, createQuitConfirmation } from './quit-confirmation'
@@ -242,6 +246,9 @@ export function createAppServices(
   // service tokens. In process it calls the shell's services directly; the
   // same object is what the shell serves a server in a process of its own.
   // Its late-bound members (the launch, the gate) resolve at call time.
+  // The chat-link router opens a chat a clicked banner names; it is built with
+  // the app's lifecycle, after these services (setChatLinkOpener).
+  let chatLinkOpener: ((link: ChatLink) => void) | null = null
   const shellBridge = createInProcessShellBridge({
     safeStorage,
     launchAgent: () => (request) => agentLaunchService.launch(request),
@@ -251,6 +258,7 @@ export function createAppServices(
       // drawing it can be the only window open.
       isCanvasWorker: isCanvasWorkerWindow,
       revealMainWindow,
+      openChat: () => chatLinkOpener,
     }),
     notifier: platform.notifier,
     // Only the events this app sends at all; the record drops any property
@@ -752,6 +760,36 @@ export function createAppServices(
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
+  })
+
+  // A banner when a chat finishes or waits on the person while they are in
+  // another app (agent-notifications.ts). Main owns the setting: the banners
+  // are raised here, with no renderer to ask.
+  const agentNotificationsStore = createAgentNotificationsStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+  const agentNotifier = createAgentNotifier({
+    mode: () => agentNotificationsStore.mode(),
+    isAnyWindowFocused: () =>
+      BrowserWindow.getAllWindows().some(
+        (window) => !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isFocused(),
+      ),
+    chatLabel: (workspaceId, agentId) => {
+      const workspace = workspaceSyncService
+        .getSnapshot()
+        .state.workspaces.find((candidate) => candidate.id === workspaceId)
+      // Only a chat the sidebar lists: a module's background host is found
+      // through its own door, and a banner would open somewhere the rail
+      // cannot take the person back from.
+      if (!workspace || (workspace.mode && workspace.mode !== 'standard')) return null
+      const agents = Object.values(workspace.agents ?? {})
+      const agentName = agents.length > 1 ? workspace.agents?.[agentId]?.name : undefined
+      return { title: workspace.name || 'Chat', ...(agentName ? { agentName } : {}) }
+    },
+    show: (notice) => shellBridge.notify(notice),
   })
 
   // "Keep the computer awake while agents work": main's own, since main takes
@@ -1537,6 +1575,18 @@ export function createAppServices(
   // for one release. The canvas service stays on this disk's files while the
   // server runs in this process: they are the server's files too.
   const clientToolsEnabled = readStudioEnv('SPRINTENGINE_CLIENT_TOOLS') !== '0'
+  // "Let agents use the built-in browser" (Settings → Agents). Offered as a
+  // client toolset, the tools are withdrawn and offered again as it changes;
+  // served in process (the env switch above), each list leaves them out while
+  // it is off. Either way the switch is read when it is needed, never kept.
+  const agentBrowserToolsStore = createAgentBrowserToolsStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+  const browserToolsOffered = () => agentBrowserToolsStore.isEnabled()
+  const browserToolGate = agentBrowserToolGate(browserToolsOffered)
   const browserTools = createBrowserTools({
     manager: browserManager,
     control: browserControl,
@@ -1604,7 +1654,10 @@ export function createAppServices(
         // terminal and run tools, in the order agents have always listed them
         // (`desktopGatewayTools`).
         // This server's shell offers these, and an agent's first list waits for them.
-        expectShellToolsets: clientToolsEnabled ? ['browser', 'canvas'] : [],
+        // Not the browser when it is switched off: the first list would wait
+        // out the boot window for a toolset that is never coming.
+        expectShellToolsets: clientToolsEnabled ? browserToolGate.expectedToolsets(['browser', 'canvas']) : [],
+        ...(clientToolsEnabled ? {} : { hideTool: browserToolGate.hidesTool }),
         // An agent that starts a chat hears back from it, as one that launches
         // a terminal agent does.
         linkLaunchedAgent: (link) => agentLaunchNotices.link(link),
@@ -1722,7 +1775,7 @@ export function createAppServices(
         version: app.getVersion(),
         toolsets: clientToolsEnabled
           ? [
-              { name: 'browser', registrations: browserTools },
+              { name: 'browser', registrations: browserTools, enabled: browserToolsOffered },
               { name: 'canvas', registrations: canvasTools },
             ]
           : [],
@@ -1738,7 +1791,7 @@ export function createAppServices(
           // tours, and the terminal family, whose `agent.launch` and
           // `agent.status` ride an `agent` toolset under today's wire names.
           toolsets: [
-            { name: 'browser', registrations: browserTools },
+            { name: 'browser', registrations: browserTools, enabled: browserToolsOffered },
             { name: 'canvas', registrations: canvasTools },
             { name: 'editor', registrations: editorTools },
             { name: 'tour', registrations: tourTools },
@@ -2098,6 +2151,12 @@ export function createAppServices(
     backgroundModeStore,
     quitConfirmationStore,
     quitConfirmation,
+    agentNotificationsStore,
+    agentNotifier,
+    agentBrowserToolsStore,
+    setChatLinkOpener(open: (link: ChatLink) => void): void {
+      chatLinkOpener = open
+    },
     keepAwakeStore,
     agentKeepAwake,
     telemetryConsentStore,

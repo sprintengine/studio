@@ -45,7 +45,7 @@ function clipboardCarriesFiles(data: DataTransfer | null): boolean {
   return Array.from(data.items ?? []).some((item) => item.kind === 'file')
 }
 
-function pasteIntoComposer(editable: HTMLElement, text: string): void {
+export function pasteIntoComposer(editable: HTMLElement, text: string): void {
   const clipboardData = new DataTransfer()
   clipboardData.setData('text/plain', text)
   editable.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }))

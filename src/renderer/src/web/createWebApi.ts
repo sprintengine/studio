@@ -137,6 +137,10 @@ const browserEmptyStates = {
   // A browser tab has no quit to ask about.
   getQuitConfirmation: async () => null,
   setQuitConfirmation: async () => null,
+  getAgentBrowserTools: async () => null,
+  setAgentBrowserTools: async () => null,
+  getAgentNotifications: async () => null,
+  setAgentNotifications: async () => null,
   // Nor a machine of its own to keep awake: the desktop's agents are the desktop's.
   getKeepAwake: async () => null,
   setKeepAwake: async () => null,

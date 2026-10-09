@@ -2,6 +2,7 @@ import type { TranscriptEntry, TranscriptToolEntry } from './conversationProject
 import { flattenToolEntries } from './conversationTimeline.js'
 import { stepWentWrong } from './stepOutcome.js'
 import { formatStepDuration } from './stepDuration.js'
+import { proseShownToUser } from './shownProse.js'
 
 // A turn's work rests folded behind one line, the turn now running included:
 // the steps are how the reply was reached, and what is happening now is the
@@ -23,14 +24,7 @@ export function stepShownToUser(tool: TranscriptToolEntry): boolean {
   return tool.name === 'GenerateImage' && tool.outputStatus !== 'error'
 }
 
-// A markdown or HTML image: the reply draws it, so the prose carrying it is
-// something to see.
-const PICTURE = /!\[[^\]]*\]\([^)\s]+[^)]*\)|<img\b/i
-
-/** Prose between steps that puts a picture in front of the person. */
-export function proseShownToUser(text: string): boolean {
-  return PICTURE.test(text)
-}
+export { proseShownToUser }
 
 /** The agents a turn spawned, drawn as cards outside its fold. */
 export function turnAgentLanes(tools: readonly TranscriptToolEntry[]): TranscriptToolEntry[] {

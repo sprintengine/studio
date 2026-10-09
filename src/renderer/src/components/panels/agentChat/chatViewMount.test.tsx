@@ -2584,6 +2584,150 @@ test('replies unseen past the top of the loaded page are read back to the one th
   }
 })
 
+test('a key typed in the transcript after clicking away from the composer lands in the composer', async () => {
+  const chat = await mountChat({})
+  try {
+    await chat.act(async () => chat.type('Check the '))
+    const transcript = chat.host.querySelector<HTMLElement>('[role="log"]')!
+    const keydown = new chat.dom.window.KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true })
+    await chat.act(async () => {
+      transcript.dispatchEvent(keydown)
+    })
+    expect(keydown.defaultPrevented).toBe(true)
+    expect(chat.draft()).toBe('Check the g')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chord, a navigation key or Space typed in the transcript stays where it was pressed', async () => {
+  const chat = await mountChat({})
+  try {
+    const transcript = chat.host.querySelector<HTMLElement>('[role="log"]')!
+    for (const init of [{ key: 'c', metaKey: true }, { key: 'ArrowDown' }, { key: 'Escape' }, { key: ' ' }]) {
+      const keydown = new chat.dom.window.KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true })
+      await chat.act(async () => {
+        transcript.dispatchEvent(keydown)
+      })
+      expect(keydown.defaultPrevented, init.key).toBe(false)
+    }
+    expect(chat.draft()).toBe('')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the transcript takes focus on a click, so what is typed next reaches the chat', async () => {
+  const chat = await mountChat({})
+  try {
+    expect(chat.host.querySelector('[role="log"]')?.getAttribute('tabindex')).toBe('-1')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Primary+Alt+Enter sends the draft and then opens New chat', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn })
+  const { setAppCommandRunner } = await import('../../../commands/appCommandRunner')
+  const ran: string[] = []
+  const unregister = setAppCommandRunner((id) => {
+    ran.push(id)
+    return true
+  })
+  try {
+    const primary = (chat.dom.window as unknown as { api: { platform: string } }).api.platform === 'darwin'
+    const chord = { key: 'Enter', code: 'Enter', altKey: true, ...(primary ? { metaKey: true } : { ctrlKey: true }) }
+    await chat.act(async () => {
+      chat
+        .field()
+        .dispatchEvent(new chat.dom.window.KeyboardEvent('keydown', { ...chord, bubbles: true, cancelable: true }))
+    })
+    expect(sendTurn, 'an empty composer sends nothing').not.toHaveBeenCalled()
+    expect(ran, 'and so stays in the chat').toEqual([])
+    await chat.act(async () => chat.type('Next: the footer'))
+    await chat.act(async () => {
+      chat
+        .field()
+        .dispatchEvent(new chat.dom.window.KeyboardEvent('keydown', { ...chord, bubbles: true, cancelable: true }))
+    })
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: 'Next: the footer' })
+    expect(ran).toEqual(['chat.new'])
+  } finally {
+    unregister()
+    await chat.unmount()
+  }
+})
+
+// From the palette, with the chat focused: the focused chat is the one restarted.
+function restartSessionCommand(chat: { dom: JSDOM; field: () => HTMLElement }) {
+  chat.field().focus()
+  chat.dom.window.dispatchEvent(
+    new chat.dom.window.CustomEvent('sprintengine:panel-command', { detail: { id: 'chat.restartSession' } }),
+  )
+}
+
+test('Restart agent session ends the idle agent’s process the way Settle does, keeping the chat', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionSuspend = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn, api: { conversationSessionSuspend } })
+  try {
+    await chat.act(async () => chat.type('Hello'))
+    await chat.act(async () => chat.enter())
+    expect(sendTurn).toHaveBeenCalledOnce()
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('user_message', { turnId: 'hello', text: 'Hello' }) })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 'hello' }) })
+      chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'hello' }) })
+    })
+    await chat.act(async () => restartSessionCommand(chat))
+    expect(conversationSessionSuspend).toHaveBeenCalledExactlyOnceWith({ sessionId: 'session' })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Restart agent session is refused while a turn is running', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionSuspend = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn, api: { conversationSessionSuspend } })
+  try {
+    await chat.act(async () => chat.type('Go'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('user_message', { turnId: 'running', text: 'Go' }) })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 'running' }) })
+    })
+    await chat.act(async () => restartSessionCommand(chat))
+    expect(conversationSessionSuspend).not.toHaveBeenCalled()
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'running' }) })
+    })
+    await chat.act(async () => restartSessionCommand(chat))
+    expect(conversationSessionSuspend, 'once the turn is over it goes ahead').toHaveBeenCalledOnce()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Restart agent session in a chat with no agent running ends nothing, and says so', async () => {
+  const conversationSessionSuspend = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ api: { conversationSessionSuspend } })
+  const { useToastStore } = await import('../../../store/toastStore')
+  try {
+    // Earlier cases' toasts are still in the one store.
+    useToastStore.setState({ toasts: [] })
+    await chat.act(async () => restartSessionCommand(chat))
+    expect(conversationSessionSuspend).not.toHaveBeenCalled()
+    const titles = useToastStore.getState().toasts.map((toast) => toast.title)
+    expect(titles).toContain('No agent session to restart')
+    expect(titles).not.toContain('Agent session restarted')
+  } finally {
+    await chat.unmount()
+  }
+})
+
 test('⌘F in a chat finds in its loaded rows, walks them with Enter, and opens the fold a match is behind', async () => {
   const { PANEL_COMMAND_EVENT } = await import('../../../utils/panelCommands')
   const { rememberConversationScroll } = await import('./conversationViewState')

@@ -1,4 +1,5 @@
 import { ipc as ipcRenderer } from '../ipc-router'
+import type { AgentNotificationMode } from '../../shared/agent-notifications'
 import type { ColorScheme, ElectronApi, WindowMaterial } from '../../shared/electron-api'
 
 type AppearanceIpcRenderer = {
@@ -8,6 +9,10 @@ type AppearanceIpcRenderer = {
   invoke(channel: 'app:set-telemetry-enabled', enabled: boolean): Promise<void>
   invoke(channel: 'app:get-quit-confirmation'): Promise<boolean>
   invoke(channel: 'app:set-quit-confirmation', enabled: boolean): Promise<boolean>
+  invoke(channel: 'app:get-agent-browser-tools'): Promise<boolean>
+  invoke(channel: 'app:set-agent-browser-tools', enabled: boolean): Promise<boolean>
+  invoke(channel: 'app:get-agent-notifications'): Promise<AgentNotificationMode>
+  invoke(channel: 'app:set-agent-notifications', mode: AgentNotificationMode): Promise<AgentNotificationMode>
   invoke(channel: 'app:get-keep-awake'): Promise<boolean>
   invoke(channel: 'app:set-keep-awake', enabled: boolean): Promise<boolean>
 }
@@ -28,6 +33,12 @@ function createAppearanceApi(renderer: AppearanceIpcRenderer) {
     // dialog's "Don't ask again" writes it, so Settings reads it back from main.
     getQuitConfirmation: (): Promise<boolean> => renderer.invoke('app:get-quit-confirmation'),
     setQuitConfirmation: (enabled: boolean): Promise<boolean> => renderer.invoke('app:set-quit-confirmation', enabled),
+    getAgentBrowserTools: (): Promise<boolean> => renderer.invoke('app:get-agent-browser-tools'),
+    setAgentBrowserTools: (enabled: boolean): Promise<boolean> =>
+      renderer.invoke('app:set-agent-browser-tools', enabled),
+    getAgentNotifications: (): Promise<AgentNotificationMode> => renderer.invoke('app:get-agent-notifications'),
+    setAgentNotifications: (mode: AgentNotificationMode): Promise<AgentNotificationMode> =>
+      renderer.invoke('app:set-agent-notifications', mode),
     // Main owns "Keep the computer awake while agents work" too: main holds
     // the blocker, with or without a window.
     getKeepAwake: (): Promise<boolean> => renderer.invoke('app:get-keep-awake'),
@@ -40,6 +51,10 @@ function createAppearanceApi(renderer: AppearanceIpcRenderer) {
     | 'setTelemetryEnabled'
     | 'getQuitConfirmation'
     | 'setQuitConfirmation'
+    | 'getAgentNotifications'
+    | 'getAgentBrowserTools'
+    | 'setAgentBrowserTools'
+    | 'setAgentNotifications'
     | 'getKeepAwake'
     | 'setKeepAwake'
   >

@@ -3,6 +3,8 @@ import type { VersionControlProviderId, VersionControlProviderProbe } from '../.
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
+import { AgentBrowserSettings } from './AgentBrowserSettings'
+import { AgentNotificationsSetting } from './AgentNotificationsSetting'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { BrowsersSettings } from './BrowsersSettings'
 import { LocalAppsSettings } from './LocalAppsSettings'
@@ -1381,6 +1383,7 @@ export default function SettingsPanel({
               />
             ) : null}
             <QuitConfirmationSetting />
+            <AgentNotificationsSetting />
             <KeepAwakeSetting />
             {telemetryDescriptor ? (
               <RegistrySwitchRow
@@ -1552,6 +1555,7 @@ export default function SettingsPanel({
           <StudioSkillsSettings />
           <TextGenerationSettingsSection />
           <ConversationApprovalSettings />
+          <AgentBrowserSettings />
 
           {idleSuspendDescriptor ? (
             // No top rule on the section: the card draws its own edge, and a

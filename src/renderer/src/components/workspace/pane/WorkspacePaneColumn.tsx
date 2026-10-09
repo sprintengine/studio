@@ -4,7 +4,9 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspaceId } from '../../../types/workspace'
 import { WorkspaceAsideColumn } from '../workspaceAsideColumn'
 import WorkspacePane from './WorkspacePane'
-import { openUrlInPane } from './browser/openInPane'
+import { openUrlInPane, rewriteUnroutableHost } from './browser/openInPane'
+import { agentBrowserTracker, shouldFloatAgentOpen } from './browser/agentBrowserFloat'
+import { useAgentBrowserAutoFloat } from './browser/useAgentBrowserAutoFloat'
 import { OFFSCREEN_LAYER_STYLE } from './WorkspacePaneBody'
 import { revealPoppedOutTab, showPaneTab, usePanePopOutHost } from './popout/panePopOutHost'
 
@@ -31,6 +33,55 @@ type WorkspacePaneColumnProps = {
   suppressed?: boolean
 }
 
+/**
+ * An agent's `browser.open` with the pane closed: its page comes up as the
+ * floating player rather than opening the pane. Nothing is activated or opened
+ * on the way, so the pane never opens under the player.
+ *
+ * The player is the person's once it is up. A page the person floated
+ * themselves stays where it is — the agent's page opens behind it, in the
+ * pane's strip — and a player the person closed stays closed while that agent
+ * keeps working (agentBrowserFloat.AGENT_SESSION_QUIET_MS), whichever way the
+ * agent names its page.
+ */
+function floatAgentOpen(
+  workspaceId: WorkspaceId,
+  request: { url: string | null; tabId: string | null; floatingTabId: string | null },
+): void {
+  const store = useWorkspaceStore.getState()
+  const pane = store.workspaces.find((w) => w.id === workspaceId)?.paneState
+  if (request.floatingTabId) {
+    if (!request.tabId && request.url)
+      store.openPaneTab(workspaceId, { kind: 'browser', url: rewriteUnroutableHost(request.url), activate: false })
+    return
+  }
+  let target: string | null
+  if (request.tabId) {
+    target = pane?.tabs.some((tab) => tab.id === request.tabId) ? request.tabId : null
+  } else if (request.url) {
+    // A new tab of its own: nobody has closed it yet.
+    target = store.openPaneTab(workspaceId, {
+      kind: 'browser',
+      url: rewriteUnroutableHost(request.url),
+      activate: false,
+    })
+  } else {
+    target =
+      activeBrowserTabId(workspaceId) ??
+      pane?.tabs.find((tab) => tab.kind === 'browser' && !tab.poppedOut)?.id ??
+      store.openPaneTab(workspaceId, { kind: 'browser', activate: false })
+  }
+  if (!target || agentBrowserTracker.isSuppressed(target, Date.now())) return
+  store.setPaneTabFloating(workspaceId, target, true)
+}
+
+/** The pane's front tab when it is a browser, else null. */
+function activeBrowserTabId(workspaceId: WorkspaceId): string | null {
+  const pane = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.paneState
+  const active = pane?.tabs.find((tab) => tab.id === pane.activeTabId)
+  return active?.kind === 'browser' ? active.id : null
+}
+
 export function WorkspacePaneColumn({
   activeWorkspaceId,
   renderedWorkspaceIds,
@@ -40,6 +91,9 @@ export function WorkspacePaneColumn({
   // The owner side of every pane, or tab, this window pops out: one per window,
   // so it rides the column rather than each workspace's pane.
   usePanePopOutHost(windowWorkspaceIds)
+  // An agent taking a page in a closed pane brings the page up as the floating
+  // player; so does closing the pane on one it is still driving.
+  useAgentBrowserAutoFloat(activeWorkspaceId, suppressed)
   const width = useWorkspaceStore((s) => s.workspacePaneWidth)
   const setWidth = useWorkspaceStore((s) => s.setWorkspacePaneWidth)
   const maximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
@@ -68,6 +122,10 @@ export function WorkspacePaneColumn({
   // about to do. A window that merely retains the workspace off screen stays
   // out of it, so no orphan tabs appear in a second window; with no window
   // showing it, the tool reports that honestly.
+  //
+  // With the pane closed the page comes up as the floating player instead
+  // (Settings → Agents, on by default): the person sees the agent work without
+  // the pane taking the chat's width. An open pane keeps the old answer.
   useEffect(
     () =>
       window.api.onBrowserOpenRequest(({ workspaceId, url, tabId }) => {
@@ -78,11 +136,15 @@ export function WorkspacePaneColumn({
         // would put the same page on screen twice and take back the width the
         // person floated it to reclaim.
         const floatingTabId = pane?.tabs.find((tab) => tab.floating)?.id ?? null
+        if (tabId && tabId === floatingTabId) return
+        // Out in a window of its own: that window brings it forward, and the
+        // pane stays as it is rather than opening on a placeholder.
+        if (tabId && revealPoppedOutTab(workspaceId, tabId)) return
+        if (shouldFloatAgentOpen(pane, store.appSettings.browserAutoFloatAgentPreview)) {
+          floatAgentOpen(workspaceId, { url, tabId, floatingTabId })
+          return
+        }
         if (tabId) {
-          if (tabId === floatingTabId) return
-          // Out in a window of its own: that window brings it forward, and the
-          // pane stays as it is rather than opening on a placeholder.
-          if (revealPoppedOutTab(workspaceId, tabId)) return
           // The agent navigated an existing tab: bring it to the front.
           if (pane?.tabs.some((tab) => tab.id === tabId)) store.setActivePaneTab(workspaceId, tabId)
         } else if (url) {

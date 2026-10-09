@@ -37,7 +37,10 @@ import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ChevronDownIcon, ScheduleGlyph } from '../AppIcons'
 import { copySelectionAsMarkdown } from '../../utils/selectionToMarkdown'
-import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
+import { getEffectiveKeybindings, platformKeybindingsFromApiPlatform } from '../../commands/effectiveKeybindings'
+import { keydownMatchesKeybindings } from '../../commands/commandDispatcher'
+import { runAppCommand } from '../../commands/appCommandRunner'
+import { showToast } from '../../store/toastStore'
 import { renderKeybinding } from '../../commands/keybindings'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
@@ -147,6 +150,16 @@ import {
   insertQuoteIntoDraft,
   quoteSelectionInto,
 } from './agentChat/quoteSelection'
+import {
+  forwardPasteToComposer,
+  isEditableElement,
+  shouldRedirectToComposer,
+  typedCharacter,
+} from './agentChat/typeToComposer'
+import { pasteIntoComposer } from '../../utils/clipboardPasteBridge'
+
+/** ⌘⌥⏎ in the composer: send, then New chat (see the registry). */
+const SEND_AND_NEW_COMMAND = 'chat.sendAndNew'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
 import {
@@ -1488,10 +1501,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Handing every mid-turn Enter straight to the turn lost messages the
   // running turn never took in, with nothing left in the queue to show for
   // them, so the queue is the default and a steer is always a choice.
-  const submitComposer = useCallback(() => {
+  const submitComposer = useCallback((): boolean => {
     // Typed into while the chat cannot send yet (a New chat still waiting on
     // its worktree): the words stay where they are until it can.
-    if (readiness.kind !== 'ready') return
+    if (readiness.kind !== 'ready') return false
     const text = draft.trim()
     if (
       !text &&
@@ -1500,21 +1513,21 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       !draftMetadata.skillIds.length &&
       !draftMetadata.files.length
     )
-      return
+      return false
     // A time is picked: the draft is scheduled, whatever the turn is doing.
     if (sendAt !== null) {
       void scheduleDraftRef.current()
-      return
+      return true
     }
     // A command Studio answers itself, or one it will not send, is handled
     // here whatever the turn is doing: it never reaches the CLI or the queue.
-    if (runAppCommandRef.current(text, attachments.length + draftMetadata.files.length)) return
+    if (runAppCommandRef.current(text, attachments.length + draftMetadata.files.length)) return true
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null) {
       if (handsQueueToHost && text) {
         clearDraft()
         setActionError(null)
         void handToHost(text)
-        return
+        return true
       }
       // The cap is the IPC boundary's; trimming to it is right, hiding the trim
       // is not — the user must know which images did not make the queue.
@@ -1523,10 +1536,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       clearDraft()
       setAttachments([])
       setActionError(queuedDropNotice(dropped))
-      return
+      return true
     }
     void sendTurn(text, attachments, draftMetadata, true)
     setAttachments([])
+    return true
   }, [
     readiness.kind,
     attachments,
@@ -2295,6 +2309,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     )
   }
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
+  const sendAndNewKeys = getEffectiveKeybindings(SEND_AND_NEW_COMMAND, keybindingSettings)
+  const keyPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const toggleModelPickerRef = useRef<() => void>(() => {})
   // The picker stays reachable once the chat has started: its model is fixed
   // then, but effort and permissions are not.
@@ -2382,6 +2398,106 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (!transcript || composerInputDisabled) return false
     return quoteSelectionInto(transcript, document.getSelection(), quoteIntoComposer)
   }
+  // Restart agent session (`chat.restartSession`): end the agent's process the
+  // way Settle and the idle sweep do — suspended, so the session keeps its
+  // resume cursor and the next message starts it again on the same
+  // conversation (sessionRecovery.ts covers a session the runtime no longer
+  // holds) — then list the slash commands again, so a skill or plugin
+  // installed since shows up. Refused while the agent works: a suspend
+  // interrupts the turn and ends the agents it sent off.
+  const restartSessionRef = useRef<() => Promise<void>>(async () => undefined)
+  restartSessionRef.current = async () => {
+    if (transport.kind !== 'local') {
+      showToast({ tone: 'warn', title: 'This chat runs on another machine', description: 'Restart it there.' })
+      return
+    }
+    const working =
+      isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) ||
+      steeringTurnId !== null ||
+      timelineRows.some((row) => row.kind === 'working')
+    if (working) {
+      showToast({
+        tone: 'warn',
+        title: 'The agent is still working',
+        description: 'Stop it first, then restart the session.',
+      })
+      return
+    }
+    if (!sessionId) {
+      // No agent has started for this chat since it opened: nothing runs to
+      // end. The command list is still asked again, which is what someone
+      // reaching for this after an install wants.
+      conversationCommands.refresh()
+      showToast({
+        tone: 'neutral',
+        title: 'No agent session to restart',
+        description: 'This chat has no agent running. Your next message starts one.',
+      })
+      return
+    }
+    const result = await window.api.conversationSessionSuspend({ sessionId }).catch((error: unknown) => ({
+      ok: false as const,
+      message: error instanceof Error ? error.message : String(error),
+    }))
+    if (!result.ok) {
+      showToast({ tone: 'error', title: 'The session was not restarted', description: result.message })
+      return
+    }
+    if (result.session) setSession(result.session)
+    conversationCommands.refresh()
+    showToast({
+      tone: 'good',
+      title: 'Agent session restarted',
+      description: 'Your next message starts it again, with the conversation as it was.',
+    })
+  }
+  // Typing or pasting in the chat away from the composer lands in it
+  // (agentChat/typeToComposer). Read through a ref so the listeners are bound
+  // once per shell, not once per keystroke's render.
+  const typeIntoComposerRef = useRef<(text: string) => boolean>(() => false)
+  typeIntoComposerRef.current = (text) => {
+    const field = composerRef.current
+    if (!field || composerInputDisabled || replay !== null) return false
+    replaceComposerSelection({ selectionStart: field.selectionStart, selectionEnd: field.selectionEnd }, text)
+    return true
+  }
+  const composerEditableRef = useRef<() => HTMLElement | null>(() => null)
+  composerEditableRef.current = () => {
+    if (composerInputDisabled || replay !== null) return null
+    const editable = shellRef.current?.querySelector<HTMLElement>('[data-composer-field] .cm-content') ?? null
+    // Hidden while a question covers the composer: the answer goes there.
+    return editable && isEditableElement(editable) && !editable.closest('.hidden, [hidden]') ? editable : null
+  }
+  // On the shell through React rather than bound once at mount: the view
+  // first renders a shell of its own while the chat is loading, and this one
+  // arrives later.
+  const redirectHandlers = useMemo<React.HTMLAttributes<HTMLDivElement>>(
+    () => ({
+      onKeyDown: (event) => {
+        if (event.defaultPrevented) return
+        const text = typedCharacter(event.nativeEvent)
+        if (!text || !shouldRedirectToComposer(event.target) || !composerEditableRef.current()) return
+        if (typeIntoComposerRef.current(text)) event.preventDefault()
+      },
+      onPaste: (event) => {
+        if (event.defaultPrevented || !shouldRedirectToComposer(event.target)) return
+        const editable = composerEditableRef.current()
+        if (!editable) return
+        composerRef.current?.focus()
+        event.preventDefault()
+        if (event.clipboardData && forwardPasteToComposer(editable, event.clipboardData)) return
+        // A paste whose text the event did not carry (the clipboard bridge's
+        // case): read it, as the bridge does for the composer itself.
+        void window.api
+          .clipboardReadText()
+          .then((text) => {
+            if (text && editable.isConnected) pasteIntoComposer(editable, text)
+          })
+          .catch(() => undefined)
+      },
+    }),
+    [],
+  )
   useEffect(
     () =>
       registerMountedChatView({
@@ -2399,6 +2515,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           quoteIntoComposerRef.current(text)
           composerRef.current?.focus()
         },
+        restartSession: () => void restartSessionRef.current(),
       }),
     [workspaceId, agentId, stepTurn],
   )
@@ -3087,7 +3204,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       workspaceRoot={workspaceRoot ?? ''}
     >
       <SubagentTypesProvider value={projection.agentTypes}>
-        <ChatShell shellRef={shellRef} dropHandlers={fileDropHandlers}>
+        <ChatShell shellRef={shellRef} dropHandlers={fileDropHandlers} keyHandlers={redirectHandlers}>
           {/* No title row above the transcript: the tab names the agent, as it
             does a terminal agent, and a thread title here repeated the first
             message over its own bubble. */}
@@ -3097,6 +3214,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             // Under a replay the live chat keeps running, out of reach.
             inert={replay !== null}
             role="log"
+            // Focusable, out of the tab order: a click in the transcript puts
+            // focus here rather than on the page, so what is typed next reaches
+            // the chat (and the composer, typeToComposer) and the arrow keys
+            // scroll it.
+            tabIndex={-1}
             aria-label={`${label} conversation`}
             aria-live="off"
             aria-busy={!hydrated || loadingEarlier}
@@ -3489,6 +3611,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               </div>
             ) : null}
             <div
+              // The floating browser player parks clear of this box
+              // (FloatingPlayer.clearOfComposer).
+              data-chat-composer=""
               className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_EDITOR_CLASS} ${
                 dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
               } ${questionCoversComposer ? 'hidden' : ''}`}
@@ -3593,6 +3718,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     if (event.key === 'Escape' && stopsTurnOnEscape(event)) {
                       event.preventDefault()
                       void interrupt()
+                      return
+                    }
+                    // ⌘⌥⏎ (`chat.sendAndNew`, rebindable): send, then New chat,
+                    // only once the message has gone or been queued.
+                    if (keydownMatchesKeybindings(event, sendAndNewKeys, keyPlatform)) {
+                      event.preventDefault()
+                      if (submitComposer()) runAppCommand('chat.new')
                       return
                     }
                     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
@@ -3793,16 +3925,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 function ChatShell({
   shellRef,
   dropHandlers,
+  keyHandlers,
   children,
 }: {
   shellRef?: React.RefObject<HTMLDivElement | null>
   dropHandlers?: React.HTMLAttributes<HTMLDivElement>
+  keyHandlers?: Pick<React.HTMLAttributes<HTMLDivElement>, 'onKeyDown' | 'onPaste'>
   children: React.ReactNode
 }) {
   return (
     <div
       ref={shellRef}
       {...dropHandlers}
+      {...keyHandlers}
       // Scopes the chat contrast setting's inks (assets/index.css).
       data-chat-pane=""
       className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-meta text-[color:var(--text-default)]"

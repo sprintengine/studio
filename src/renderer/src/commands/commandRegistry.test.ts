@@ -111,6 +111,18 @@ test('the chat turn chords share the terminal prompt chords without a blocking c
   }
 })
 
+test('send and start a new chat ships on Primary+Alt+Enter, free of conflicts', () => {
+  const sendAndNew = getCommandDefinition('chat.sendAndNew')
+  assert.deepEqual(sendAndNew?.defaultKeybindings, ['primary+alt+enter'])
+  assert.equal(sendAndNew?.allowInEditableTarget, true, 'the composer is where it is pressed')
+  assert.equal(
+    sendAndNew?.handlerPath.kind,
+    'context-bound',
+    'the composer resolves it; the window dispatcher runs nothing',
+  )
+  assert.deepEqual(findKeybindingConflicts(sendAndNew!, COMMAND_REGISTRY), [])
+})
+
 test('the New chat chord and the waiting-chats chord ship free of conflicts on every platform', () => {
   const stay = getCommandDefinition('chat.new.launchInBackground')
   const waiting = getCommandDefinition('chat.nextWaiting')

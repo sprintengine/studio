@@ -475,6 +475,12 @@ export interface WorkspacePaneSliceActions {
    */
   setPaneTabFloating: (id: WorkspaceId, tabId: string, floating: boolean) => void
   /**
+   * Put a floating player away without docking it: the tab stops floating and
+   * the pane stays closed. The page keeps running in its docked layer, so an
+   * agent driving it carries on out of sight; the pane strip still holds it.
+   */
+  dismissPaneTabFloat: (id: WorkspaceId, tabId: string) => void
+  /**
    * Mark tabs as shown in the pop-out window `popOutId`. The tabs stay in the
    * strip; the window mounts their bodies and this pane draws a placeholder.
    *
@@ -540,6 +546,20 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
           pane.open = true
           pane.activeTabId = tabId
         }
+        ws.paneState = normalizeWorkspacePaneState(pane)
+      }),
+
+    dismissPaneTabFloat: (id, tabId) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        const pane = ws?.paneState
+        const tab = pane?.tabs.find((candidate) => candidate.id === tabId)
+        if (!ws || !pane || !tab?.floating) return
+        delete tab.floating
+        // Docked again, it is the tab the pane shows when it next opens: the
+        // one the person was last watching.
+        pane.activeTabId = tabId
+        pane.open = false
         ws.paneState = normalizeWorkspacePaneState(pane)
       }),
 

@@ -22,6 +22,7 @@ import { declaredPermissionPresets } from '../../main/plugin-render'
 import { getSharedCredentialStore } from '../../main/secret-store'
 import { readStudioEnvironmentId } from '../../main/studio-rpc/studio-rpc-service'
 import { createTailnetNotifier } from '../../main/tailnet-notifications'
+import { agentBrowserToolGate, agentBrowserToolsEnabledOnDisk } from '../../main/agent-browser-tools-store'
 import { createWorkspaceBackupService } from '../../main/workspace-backup'
 import { conversationTurnInProgress } from '../../shared/conversation/phase'
 import { isWslHostId } from '../../shared/execution-host'
@@ -112,6 +113,7 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
           key: notice.key,
           title: notice.title,
           ...(notice.body ? { body: notice.body } : {}),
+          ...(notice.silent !== undefined ? { silent: notice.silent } : {}),
           ...(notice.activate ? { activate: notice.activate } : {}),
         }),
     },
@@ -287,7 +289,12 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
     // The shell offers what acts on a screen or a terminal (6.3): an agent's
     // first list waits for them, as in process it waits for the browser and
     // the canvas.
-    expectShellToolsets: SHELL_TOOLSETS,
+    // Not the browser while the person has it switched off: the shell does not
+    // offer it then, and the setting is read from the profile when the first
+    // list comes, since the shell's copy is in another process.
+    expectShellToolsets: agentBrowserToolGate(() => agentBrowserToolsEnabledOnDisk(envelope.dataDir)).expectedToolsets(
+      SHELL_TOOLSETS,
+    ),
     appTools: (coreTools) => [
       ...coreTools,
       ...serverAutomationTools(

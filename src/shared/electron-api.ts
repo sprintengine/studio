@@ -1,6 +1,7 @@
 import type { ClientCapability } from './client-capabilities'
 import type { AttachedFilePreview } from './attached-files'
 import type { ChatLink } from './deep-link'
+import type { AgentNotificationMode } from './agent-notifications'
 import type { PreviewOpenAnswer, PreviewPort, PreviewSummary, WebDevicesStatus } from './web-client'
 import type {
   SshEnvironmentResult,
@@ -1799,6 +1800,12 @@ export type ElectronApi = {
   // its own to ask about (a browser tab).
   getQuitConfirmation: () => Promise<boolean | null>
   setQuitConfirmation: (enabled: boolean) => Promise<boolean | null>
+  /** Whether agents are given the built-in browser's tools (Settings → Agents); null where main has none. */
+  getAgentBrowserTools: () => Promise<boolean | null>
+  setAgentBrowserTools: (enabled: boolean) => Promise<boolean | null>
+  /** Banners for a chat that finished or waits on the person (Settings → General); null where main has none. */
+  getAgentNotifications: () => Promise<AgentNotificationMode | null>
+  setAgentNotifications: (mode: AgentNotificationMode) => Promise<AgentNotificationMode | null>
   // "Keep the computer awake while agents work", which main owns: it takes and
   // releases the power-save blocker as agents start and stop. Null from a
   // client whose machine is not this one to keep awake (a browser tab).

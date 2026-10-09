@@ -1,5 +1,6 @@
 import { connect, type StudioClient } from '../../packages/agent-sdk/src/client'
 import type { StudioTransportFactory } from '../../packages/agent-sdk/src/transport'
+import type { OfferedToolset } from '../../packages/agent-sdk/src/tools'
 import type { McpToolRegistration } from '../shared/modules/mcp-tools'
 import { offerGatewayTools } from './automation/offer-gateway-tools'
 
@@ -14,7 +15,16 @@ import { offerGatewayTools } from './automation/offer-gateway-tools'
 // the person is looking at it, so a call is routed to the window in front of
 // them when more than one desktop offers the same toolset.
 
-export type DesktopShellToolset = { name: string; registrations: McpToolRegistration[] }
+export type DesktopShellToolset = {
+  name: string
+  registrations: McpToolRegistration[]
+  /**
+   * Whether the toolset is offered now; absent, always. Read as the client
+   * connects and again on `refreshToolsets`, which offers or withdraws it to
+   * match: a person turning the agents' browser off in Settings.
+   */
+  enabled?: () => boolean
+}
 
 export type DesktopFocus = { focused: boolean; workspaceIds: string[]; activeWorkspaceId?: string }
 
@@ -28,6 +38,8 @@ export type DesktopShellTools = {
    */
   start(): Promise<void>
   stop(): void
+  /** Offer what has been switched on and withdraw what has been switched off since. */
+  refreshToolsets(): Promise<void>
   /** The client, once connected: for tests and diagnostics. */
   client(): StudioClient | null
 }
@@ -50,6 +62,43 @@ export function createDesktopShellTools(options: {
   let stopped = false
   let unwatch: (() => void) | null = null
   let focusTimer: ReturnType<typeof setTimeout> | null = null
+  // What is offered now, by name. The SDK offers each again by itself after a
+  // reconnect; one withdrawn here stays withdrawn until it is switched back on.
+  const offered = new Map<string, OfferedToolset>()
+
+  async function offerToolset(connected: StudioClient, toolset: DesktopShellToolset): Promise<void> {
+    try {
+      offered.set(toolset.name, await offerGatewayTools(connected, toolset.name, toolset.registrations))
+    } catch (error) {
+      options.log?.(
+        `The desktop could not offer its ${toolset.name} tools: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  // One pass at a time: a switch flipped while the first offers are still out
+  // must not offer the same toolset twice.
+  let syncing: Promise<void> = Promise.resolve()
+  function syncToolsets(connected: StudioClient): Promise<void> {
+    syncing = syncing.then(() => syncPass(connected))
+    return syncing
+  }
+
+  async function syncPass(connected: StudioClient): Promise<void> {
+    for (const toolset of options.toolsets) {
+      const wanted = toolset.enabled?.() ?? true
+      const current = offered.get(toolset.name)
+      if (wanted && !current) await offerToolset(connected, toolset)
+      else if (!wanted && current) {
+        offered.delete(toolset.name)
+        await current.withdraw().catch((error: unknown) => {
+          options.log?.(
+            `The desktop could not withdraw its ${toolset.name} tools: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        })
+      }
+    }
+  }
 
   function sendFocus(): void {
     focusTimer = null
@@ -83,15 +132,7 @@ export function createDesktopShellTools(options: {
       return
     }
     client = connected
-    for (const toolset of options.toolsets) {
-      try {
-        await offerGatewayTools(connected, toolset.name, toolset.registrations)
-      } catch (error) {
-        options.log?.(
-          `The desktop could not offer its ${toolset.name} tools: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-    }
+    await syncToolsets(connected)
     if (options.focus) {
       sendFocus()
       unwatch = options.focus.onChange(() => {
@@ -139,6 +180,9 @@ export function createDesktopShellTools(options: {
       focusTimer = null
       client?.close()
       client = null
+    },
+    async refreshToolsets() {
+      if (client && !stopped) await syncToolsets(client)
     },
     client: () => client,
   }

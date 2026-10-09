@@ -156,6 +156,17 @@ test('opening the menu asks again with refresh only once the list is a few minut
   expect(conversationCommands).toHaveBeenLastCalledWith({ cli: 'claude-code', cwd: CWD, refresh: true })
 })
 
+test('a restarted session asks again with refresh at once, however fresh the list', async () => {
+  const conversationCommands = vi.fn(async () => catalog([{ name: 'compact', source: 'cli' }]))
+  const hook = await mountHook({ conversationCommands, onConversationCommandsChanged: () => () => undefined })
+  await hook.render()
+  await hook.act(async () => hook.state().refreshIfStale())
+  expect(conversationCommands).toHaveBeenCalledOnce()
+  await hook.act(async () => hook.state().refresh())
+  expect(conversationCommands).toHaveBeenCalledTimes(2)
+  expect(conversationCommands).toHaveBeenLastCalledWith({ cli: 'claude-code', cwd: CWD, refresh: true })
+})
+
 test('a failed ask keeps the last list and carries the error', async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(1_000_000)
