@@ -67,7 +67,7 @@ export function createElectronPlatform(deps: ElectronPlatformDeps): StudioPlatfo
       notify(notice) {
         if (!deps.Notification.isSupported()) return
         shown.get(notice.key)?.close()
-        const banner = new deps.Notification({ title: notice.title, body: notice.body, silent: false })
+        const banner = new deps.Notification({ title: notice.title, body: notice.body, silent: notice.silent ?? false })
         if (notice.onActivate) banner.on('click', notice.onActivate)
         banner.on('close', () => {
           if (shown.get(notice.key) === banner) shown.delete(notice.key)

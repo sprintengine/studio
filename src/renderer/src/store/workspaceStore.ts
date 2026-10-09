@@ -313,6 +313,7 @@ export interface WorkspaceStore
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
   setSettleOnPullRequestMerge: (enabled: boolean) => void
+  setBrowserAutoFloatAgentPreview: (enabled: boolean) => void
   /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void

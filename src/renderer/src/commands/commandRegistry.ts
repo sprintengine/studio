@@ -100,6 +100,26 @@ export const COMMAND_REGISTRY = [
       action: 'onPromptKeyDown -> launch(prompt, { stay: true })',
     },
   }),
+  // Send what is in a chat's composer and go straight to New chat, to fire off
+  // the next task while this one runs. ⌘⌥⏎: the chat's ⌘⏎ is "send now", and
+  // Option is the key that says "and then somewhere else". Resolved in the
+  // composer's own keydown, after its pickers and an input method have had the
+  // key, so the window dispatcher's match runs nothing (context-bound); the
+  // scope is what puts it in the Shortcuts tab, rebindable and checked for
+  // conflicts.
+  command({
+    id: 'chat.sendAndNew',
+    title: 'Send and start a new chat',
+    category: 'workspace',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Alt+Enter'],
+    allowInEditableTarget: true,
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'AgentChatView',
+      action: 'composer onKeyDown -> submitComposer(), then chat.new',
+    },
+  }),
   // The chats waiting on the person, one press each: blocked on a question or
   // an approval first, then a failed turn, longest-waiting first within each —
   // the same chats the Home badge counts. J for "jump"; ⌘⇧J is spoken for
@@ -188,6 +208,20 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: [],
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'chat.resumeInTerminal' },
+  }),
+  // End the focused chat's agent process the way Settle and the idle sweep do,
+  // keeping the conversation: the next message starts it again, resumed, and
+  // the CLI reads its skills and plugins afresh as it starts. For after
+  // installing one, which a running CLI does not see. No chord: it is reached
+  // for rarely, from the palette.
+  command({
+    id: 'chat.restartSession',
+    title: 'Restart agent session',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: [],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.restartSession' },
   }),
   // Step through a conversation one prompt at a time — the chat's reading of
   // what `terminal.promptPrevious` / `terminal.promptNext` do in a shell, so it

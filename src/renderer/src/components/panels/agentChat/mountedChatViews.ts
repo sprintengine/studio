@@ -15,11 +15,14 @@ export type MountedChatView = {
   startReplay?: () => void
   /** Quote the document's selection when it is in this view's transcript; whether it was. */
   quoteSelection?: () => boolean
+  /** End the agent's process, keeping the conversation (`chat.restartSession`). */
+  restartSession?: () => void
 }
 const mountedChatViews: MountedChatView[] = []
 export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
 const RESUME_IN_TERMINAL_COMMAND = 'chat.resumeInTerminal'
 const REPLAY_COMMAND = 'chat.replay.start'
+const RESTART_SESSION_COMMAND = 'chat.restartSession'
 
 /**
  * Answer `chat.modelPicker.toggle` (⌘⇧M, or the palette row) with ONE chat
@@ -74,6 +77,14 @@ function onModelPickerPanelCommand(event: Event): void {
         .reverse()
         .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
     responder?.startReplay?.()
+  }
+  if (detail?.id === RESTART_SESSION_COMMAND) {
+    const responder =
+      mountedChatViews.find((view) => view.isFocused()) ??
+      [...mountedChatViews]
+        .reverse()
+        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
+    responder?.restartSession?.()
   }
   // The view whose transcript holds the selection answers, whichever has focus.
   if (detail?.id === QUOTE_SELECTION_COMMAND) mountedChatViews.some((view) => view.quoteSelection?.() === true)

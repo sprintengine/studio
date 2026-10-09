@@ -13,7 +13,7 @@ import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import { toolSuccess, toolError } from '../../shared/modules/mcp-tools'
 import type { StudioToolReach } from '../../../packages/studio-protocol/src/public'
 import { createClientToolRegistry, type ClientToolRegistry } from '../tools/client-tool-registry'
-import { createClientToolGateway } from '../tools/client-tool-gateway'
+import { createClientToolGateway, type ExpectedShellToolsets } from '../tools/client-tool-gateway'
 import { cancelClientCallsAtTurnEnd } from '../tools/client-tool-turns'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
 import { createClientToolsetStore, type ConversationRef } from '../tools/client-toolset-store'
@@ -64,7 +64,13 @@ export type StudioGatewayOptions = Pick<
    * shell has offered them waits for them, up to five seconds. A server with
    * no shell of its own names none and never waits.
    */
-  expectShellToolsets?: readonly string[]
+  expectShellToolsets?: ExpectedShellToolsets
+  /**
+   * A gateway tool to leave out of every list now: a family the person
+   * switched off (the agents' browser) while it is served here rather than
+   * offered by the shell. Asked per list, so the switch holds without a restart.
+   */
+  hideTool?: (name: string) => boolean
   /**
    * Remember which agent started a chat through `conversation.create`, so it is
    * told when the chat's turn ends (agent-launch-notices.ts). The desktop in
@@ -165,9 +171,10 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
   })
   // The order agents have always listed: the shell's toolsets in the slots
   // the browser and canvas tools held, Studio's own tools, then any app's.
+  const hideTool = options.hideTool
   const resolveTools = (context?: McpConnectionContext) => [
     ...clientGateway.builtIns(context),
-    ...resolveGatewayTools(),
+    ...(hideTool ? resolveGatewayTools().filter((tool) => !hideTool(tool.name)) : resolveGatewayTools()),
     ...clientGateway.apps(context),
   ]
 

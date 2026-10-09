@@ -16,6 +16,8 @@ export type StudioNotice = {
   key: string
   title: string
   body?: string
+  /** No sound with the banner. Absent, the OS plays its notification sound. */
+  silent?: boolean
   /** What a click on the notice does, in this process. */
   onActivate?: () => void
   /**

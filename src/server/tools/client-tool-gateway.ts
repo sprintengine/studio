@@ -92,14 +92,20 @@ export function runGatewayCall<T>(scope: GatewayCallScope, handler: () => T): T 
   return callScope.run(scope, handler)
 }
 
+/** The shell toolsets a first `tools/list` waits for: fixed, or read when that list comes. */
+export type ExpectedShellToolsets = readonly string[] | (() => readonly string[])
+
 export function createClientToolGateway(options: {
   registry: ClientToolRegistry
   /**
    * The shell's toolsets this server waits for at start: the desktop's own
    * server lists the browser and the canvas from an agent's very first
    * `tools/list`. A server with no shell of its own names none and never waits.
+   * As a function it is asked when the first list comes, not at start: the
+   * person can switch a toolset off (the agents' browser) in between, and a
+   * wait for a toolset that is not coming is five seconds of nothing.
    */
-  expectShellToolsets?: readonly string[]
+  expectShellToolsets?: ExpectedShellToolsets
   /** How long a first `tools/list` waits for them. */
   bootWaitMs?: number
   now?: () => number
@@ -118,7 +124,11 @@ export function createClientToolGateway(options: {
   }
   // Waits only until the shell's toolsets first arrive, or the wait runs out
   // once: after that a missing toolset is a missing client, not a slow start.
-  let booted: Promise<void> | null = options.expectShellToolsets?.length ? null : Promise.resolve()
+  let booted: Promise<void> | null = null
+  const expected = (): readonly string[] => {
+    const toolsets = options.expectShellToolsets
+    return typeof toolsets === 'function' ? toolsets() : (toolsets ?? [])
+  }
 
   function callerOf(context: McpConnectionContext): ClientToolCaller {
     const identity = identityOf(context)
@@ -255,9 +265,11 @@ export function createClientToolGateway(options: {
     },
     /** Waits, once, for the shell's toolsets before the first list. */
     ready(): Promise<void> {
-      booted ??= registry
-        .whenOffered(options.expectShellToolsets ?? [], options.bootWaitMs ?? 5_000)
-        .then(() => undefined)
+      if (booted) return booted
+      const toolsets = expected()
+      booted = toolsets.length
+        ? registry.whenOffered(toolsets, options.bootWaitMs ?? 5_000).then(() => undefined)
+        : Promise.resolve()
       return booted
     },
     /** A connection that hears notifications: told when its list grows. Returns what to call when it ends. */

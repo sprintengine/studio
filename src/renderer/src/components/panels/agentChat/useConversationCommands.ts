@@ -170,6 +170,8 @@ export type ConversationCommandsState = {
   loading: boolean
   /** The menu opened: ask again when the list is older than `COMMANDS_STALE_MS`. */
   refreshIfStale: () => void
+  /** Ask the CLI again now, however fresh the list: a skill or plugin was just installed. */
+  refresh: () => void
 }
 
 /**
@@ -219,7 +221,12 @@ export function useConversationCommands(
     // `refresh` only over a list the CLI answered; an unanswered one is due anyway.
     void request(currentCli, currentCwd, Boolean(known?.fetchedAt))
   }, [])
-  return { commands, catalog, loading, refreshIfStale }
+  const refresh = useCallback(() => {
+    const { cli: currentCli, cwd: currentCwd, discover: canDiscover } = latest.current
+    if (!currentCli || !currentCwd || !canDiscover) return
+    void request(currentCli, currentCwd, true)
+  }, [])
+  return { commands, catalog, loading, refreshIfStale, refresh }
 }
 
 /** Test seam: forget every list and subscription this module holds. */

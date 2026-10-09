@@ -469,6 +469,14 @@ export type AppSettings = {
    */
   settleOnPullRequestMerge: boolean
   /**
+   * Float the pane's browser over the workspace when an agent opens or drives
+   * a page while the pane is closed, so the person sees what it is doing
+   * without giving up the chat's width. On by default. Off, an agent's
+   * `browser.open` opens the pane, as it did before the player existed, and
+   * driving a tab in a closed pane shows nothing.
+   */
+  browserAutoFloatAgentPreview: boolean
+  /**
    * Keep the app running when its last window closes, on every platform.
    * Off by default, which is byte-for-byte the rule before background mode existed:
    * quit on Windows/Linux, survive on macOS. On, the process stays up with a

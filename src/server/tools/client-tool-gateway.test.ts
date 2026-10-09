@@ -360,3 +360,27 @@ test('a desktop’s server lists the shell’s toolsets from the first tools/lis
   registry.offer(shell.connectionId, toolset('canvas', ['list']))
   assert.deepEqual(await listing, ['browser.status', 'canvas.list', 'workspace.list'])
 })
+
+test('the shell toolsets to wait for are asked when the first list comes, so one switched off is not waited for', async () => {
+  const registry = createClientToolRegistry({ store: createClientToolsetStore({}), servedFamilies: () => [] })
+  cleanups.push(() => registry.close())
+  let browserOn = true
+  let asked = 0
+  const gateway = createClientToolGateway({
+    registry,
+    expectShellToolsets: () => {
+      asked++
+      return browserOn ? ['browser'] : []
+    },
+    bootWaitMs: 5_000,
+  })
+  assert.equal(asked, 0, 'nothing is read at start')
+  // The person turns the browser off before any agent lists.
+  browserOn = false
+  const started = Date.now()
+  await gateway.ready()
+  assert.ok(Date.now() - started < 1_000, 'the first list does not wait out the boot window')
+  assert.equal(asked, 1)
+  await gateway.ready()
+  assert.equal(asked, 1, 'asked once: after the first list, nothing waits')
+})

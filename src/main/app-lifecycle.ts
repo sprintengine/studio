@@ -3,7 +3,7 @@ import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
 import { DEEP_LINK_SCHEMES } from '../shared/deep-link-scheme'
-import { CHAT_LINK_OPEN_CHANNEL, chatLinkFromArgv } from '../shared/deep-link'
+import { CHAT_LINK_OPEN_CHANNEL, chatLinkFromArgv, type ChatLink } from '../shared/deep-link'
 import { createChatLinkRouter } from './chat-link-router'
 import { registerChatLinkIpc, routeSecondLaunch } from './chat-link-ipc'
 import { registerLinuxUrlHandler, systemLinuxUrlHandlerDeps } from './linux-url-handler'
@@ -55,6 +55,10 @@ type RegisterAppLifecycleOptions = {
   }
   /** Handed the one attention channel once it exists, for asks that are not a turn (a diff tour). */
   onAgentAttentionReady?(attention: { notify(key: string): void }): void
+  /** Hears the same turn ends and questions, for the OS banner that names the chat (agent-notifications.ts). */
+  agentNotifier?: { onAgentPhase(event: AgentPhaseEvent): void }
+  /** Handed the chat-link router's opener once it exists, so a clicked banner can open its chat. */
+  onChatLinksReady?(open: (link: ChatLink) => void): void
   // The chats, as every caller drives them (the core's conversation backend):
   // the attention channel follows their events.
   conversations?: {
@@ -269,6 +273,8 @@ export function registerAppLifecycle({
   startDeferredBootJobs,
   prepareWorkspacesAtBoot,
   onAgentAttentionReady,
+  agentNotifier,
+  onChatLinksReady,
   server,
 }: RegisterAppLifecycleOptions): void {
   // Background mode: the last window closing stops being the end of
@@ -327,6 +333,7 @@ export function registerAppLifecycle({
     },
     send: (win, link, generation) => win.webContents.send(CHAT_LINK_OPEN_CHANNEL, link, generation),
   })
+  onChatLinksReady?.((link) => chatLinks.open(link))
   function openChatLinkFrom(argv: readonly string[]): void {
     const link = chatLinkFromArgv(argv)
     if (link) chatLinks.open(link)
@@ -638,9 +645,11 @@ export function registerAppLifecycle({
       bounceDock: () => app.dock?.bounce('informational'),
       setBadgeCount: (count) => app.setBadgeCount(count),
     })
-    // The same phases keep the computer awake while an agent works.
+    // The banner naming the chat, and keeping the computer awake while an
+    // agent works, hear every phase the attention channel does.
     const onAgentPhase = (event: AgentPhaseEvent): void => {
       agentAttention.onAgentPhase(event)
+      agentNotifier?.onAgentPhase(event)
       agentKeepAwake?.onAgentPhase(event)
     }
     if (agentKeepAwake) app.once('will-quit', () => agentKeepAwake.dispose())
