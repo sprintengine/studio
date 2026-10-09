@@ -2007,6 +2007,19 @@ samp,
   }
 }
 
+/* Find in chat (agentChat/chatFindHighlight.ts). Painted through the CSS
+   Custom Highlight API rather than by wrapping matches in elements: the
+   transcript is React's to render, and a <mark> spliced into a reply would be
+   undone by its next token. Background only, so a match inside a code block
+   keeps its syntax ink. */
+::highlight(chat-find) {
+  background-color: var(--sem-color-find-match);
+}
+
+::highlight(chat-find-current) {
+  background-color: var(--sem-color-find-match-current);
+}
+
 /* The lines an agent opened a file at (editor.open / open_diff): a "just
    changed" tint that fades over one pulse, the same grammar and the same
    duration as the row pulse above, in the accent's soft tint because it marks

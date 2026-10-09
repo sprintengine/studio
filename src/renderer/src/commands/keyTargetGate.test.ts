@@ -48,6 +48,27 @@ test('the pane "+" chord is taken from the composer on macOS only, and never fro
   }
 })
 
+test('the find chord is taken inside a chat, and left to everything else', () => {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `<div data-chat-pane>
+      <div id="transcript" tabindex="0"><p id="reply">words</p></div>
+      <div id="chat-composer" contenteditable="true"></div>
+      <div class="monaco-editor"><textarea id="chat-monaco"></textarea></div>
+    </div>`,
+  )
+  for (const platform of ['darwin', 'windows', 'linux'] as const) {
+    for (const id of ['transcript', 'reply', 'chat-composer'])
+      expect(shellTakesChordFrom('chat.find', document.getElementById(id), platform)).toBe(true)
+    // An editor drawn inside a chat keeps its own find.
+    expect(shellTakesChordFrom('chat.find', document.getElementById('chat-monaco'), platform)).toBe(false)
+    // Outside a chat: an editor, a terminal, the page, and a text field that
+    // is not a chat's.
+    for (const target of [monaco, terminal, plain, document.body, composer, null])
+      expect(shellTakesChordFrom('chat.find', target, platform)).toBe(false)
+  }
+})
+
 test('any other command is left to the dispatcher', () => {
   expect(shellTakesChordFrom('chat.nextWaiting', monaco, 'darwin')).toBe(true)
 })

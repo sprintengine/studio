@@ -1,6 +1,9 @@
+// @vitest-environment jsdom
 import { expect, test } from 'vitest'
-import React from 'react'
+import React, { act } from 'react'
+import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { revealMatch } from '../../../utils/revealMatch'
 import { planBody, planIsLong, planTitle } from './planCard'
 import { ResolvedDecisionRow } from './timelineRows'
 import type { TranscriptEntry } from './conversationProjection'
@@ -69,6 +72,39 @@ test('inside a conversation a long plan rests as a preview that opens in the pan
   const short = inConversation(plan('# Move the cache\n\n1. Read the config'))
   expect(short).toContain('Open plan')
   expect(short).not.toContain('mask-image')
+})
+
+test('a find that lands past the preview shows the whole plan, and searches only what the plan wrote', async () => {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const long = (title: string) => `${title}${Array.from({ length: 30 }, (_, index) => `- step ${index}`).join('\n')}`
+  const render = (entry: Approval) =>
+    act(async () =>
+      root.render(
+        <ConversationLinkProvider workspaceId="ws" agentId="agent" cwd="/repo" workspaceRoot="/repo">
+          <ResolvedDecisionRow entry={entry} />
+        </ConversationLinkProvider>,
+      ),
+    )
+  try {
+    await render(plan(long('# Ship it\n\n')))
+    const segments = host.querySelectorAll('[data-chat-find-segment="plan:plan-1"]')
+    expect([...segments].map((element) => element.textContent?.trim().slice(0, 6))).toEqual(['Ship i', 'step 0'])
+    expect(host.innerHTML).toContain('mask-image')
+    await act(async () => revealMatch(segments[1]!.lastChild!))
+    expect(host.innerHTML).not.toContain('mask-image')
+
+    // A plan with no heading of its own: the card's fallback title is not the plan's text.
+    await render(plan(long(''), { requestId: 'plan-2' }))
+    const untitled = host.querySelectorAll('[data-chat-find-segment="plan:plan-2"]')
+    expect(untitled).toHaveLength(1)
+    expect(untitled[0]!.textContent).not.toContain('Proposed plan')
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
 })
 
 test('a plan request with no text keeps the one-line record', () => {

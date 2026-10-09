@@ -265,6 +265,23 @@ export const COMMAND_REGISTRY = [
   // what the dispatcher matches, so the chord is written unshifted. Outside
   // editable targets only: the selection it acts on is in the transcript, and
   // focus is there with it.
+  // Find in the conversation you are reading: its messages, replies and plans,
+  // a match at a time. ⌘F because that is where a person's hand goes to find
+  // anything, and it is free here: `terminal.find` holds the chord on the more
+  // specific `terminal` scope and wins inside a terminal, and
+  // `shellTakesChordFrom` hands it back to Monaco and to everything that is
+  // not a chat. `allowInEditableTarget` so it works from the composer, where
+  // the person is when they think to look something up.
+  command({
+    id: 'chat.find',
+    title: 'Find in chat',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+F'],
+    availability: ['activeWorkspace'],
+    allowInEditableTarget: true,
+    handlerPath: { kind: 'panel-event', eventId: 'chat.find' },
+  }),
   command({
     id: 'chat.quoteSelection',
     title: 'Quote selection in reply',

@@ -1046,6 +1046,40 @@
             }
           }
         }
+      },
+      "find": {
+        "match": {
+          "$type": "color",
+          "$value": "#ffe9a8",
+          "$description": "The wash behind every match of a find in text the app draws itself, such as Find in chat. Highlighter amber, the same pair the terminal's find decorations paint, so a match looks like a match in a chat and a pane alike; amber because no syntax ink, status mark or selection in the app is a background of that hue.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "find",
+              "use": "Background of a find match painted over rendered text (a ::highlight pseudo-element).",
+              "doNotUse": "Warning or needs-input (that is status.warn), selection, row backgrounds, or any fill that is not a find match.",
+              "modes": {
+                "light": "#ffe9a8",
+                "dark": "#4a3f18"
+              }
+            }
+          }
+        },
+        "match-current": {
+          "$type": "color",
+          "$value": "#ffc93c",
+          "$description": "The wash behind the match a find is on: find.match one step stronger, so the current match stands out from the rest without a second hue.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "find",
+              "use": "Background of the one current match of a find, painted over rendered text.",
+              "doNotUse": "Anything but the current find match; never a selection or focus indicator.",
+              "modes": {
+                "light": "#ffc93c",
+                "dark": "#8a6d10"
+              }
+            }
+          }
+        }
       }
     },
     "shadow": {
