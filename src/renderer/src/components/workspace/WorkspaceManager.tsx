@@ -3822,6 +3822,9 @@ export default function WorkspaceManager() {
           // A worktree cut for it there, or one the project has; refused in
           // words by a machine that does not take it, never dropped.
           ...(launch.worktree ? { worktree: launch.worktree } : {}),
+          // The staged images, as bytes: main puts them in that machine's
+          // upload store and the first message names them there.
+          ...(launch.images?.length ? { attachments: launch.images } : {}),
         })
         .catch((error: unknown): { ok: false; code: string; message: string } => ({
           ok: false,

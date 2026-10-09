@@ -94,8 +94,15 @@ export const meshApi = {
     effort?: string
     /** A worktree to start in; refused, never dropped, by a machine without the capability for it. */
     worktree?: MeshNewChatWorktree
-  }): Promise<MeshCreateConversationResult> =>
-    ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, input) as Promise<MeshCreateConversationResult>,
+    /** Images that go with the first message; main puts them in that machine's upload store first. */
+    attachments?: ConversationImageAttachment[]
+  }): Promise<MeshCreateConversationResult> => {
+    const { attachments, ...rest } = input
+    return ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, {
+      ...rest,
+      ...(attachments?.length ? { attachments } : {}),
+    }) as Promise<MeshCreateConversationResult>
+  },
   meshSettleConversation: (input: {
     connectionId: string
     workspaceId: string
