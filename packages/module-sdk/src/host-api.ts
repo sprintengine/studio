@@ -51,6 +51,9 @@ export type HostCapability =
   // declares `requires.hostCapabilities: ['electron-main']` and runs only where
   // this is true.
   | 'electron-main'
+  // ── Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP ──
+  // `MainHost.getSkillStatus`: is a skill present, without writing it.
+  | 'skill-status'
   | (string & {})
 
 export type HostApiCompatibility =

@@ -65,6 +65,8 @@ import type {
 import type {
   EnsureSkillInstalledResult as AppEnsureSkillInstalledResult,
   ModuleSkillRegistration as AppModuleSkillRegistration,
+  ModuleSkillStatus as AppModuleSkillStatus,
+  ModuleSkillStatusResult as AppModuleSkillStatusResult,
   ModuleSkillTargetPolicy as AppModuleSkillTargetPolicy,
 } from '../../../src/shared/modules/skills'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
@@ -189,6 +191,8 @@ import type {
   McpToolRegistration as SdkMcpToolRegistration,
   EnsureSkillInstalledResult as SdkEnsureSkillInstalledResult,
   ModuleSkillRegistration as SdkModuleSkillRegistration,
+  ModuleSkillStatus as SdkModuleSkillStatus,
+  ModuleSkillStatusResult as SdkModuleSkillStatusResult,
   ModuleSkillTargetPolicy as SdkModuleSkillTargetPolicy,
   McpToolResult as SdkMcpToolResult,
   ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
@@ -381,6 +385,13 @@ expectType<IsExact<AppModuleSkillRegistration, SdkModuleSkillRegistration>>()
 expectType<IsExact<AppEnsureSkillInstalledResult, SdkEnsureSkillInstalledResult>>()
 expectType<IsExact<AppMainHost['registerSkills'], SdkMainHost['registerSkills']>>()
 expectType<IsExact<AppMainHost['ensureSkillInstalled'], SdkMainHost['ensureSkillInstalled']>>()
+
+// ── Main-host plumbing (settings, workspaces, storage, GitHub, skills, MCP) ──
+// Each addition pinned exactly, for the reason the whole file gives.
+// Skills: the exhaustive status vocabulary and the read-only check.
+expectType<IsExact<AppModuleSkillStatus, SdkModuleSkillStatus>>()
+expectType<IsExact<AppModuleSkillStatusResult, SdkModuleSkillStatusResult>>()
+expectType<IsExact<AppMainHost['getSkillStatus'], SdkMainHost['getSkillStatus']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()

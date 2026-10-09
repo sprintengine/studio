@@ -9,10 +9,15 @@ import {
   type ModuleNotification,
   type ModuleNotifyInput,
 } from '../../shared/modules/notifications'
-import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../../shared/modules/skills'
+import type {
+  EnsureSkillInstalledResult,
+  ModuleSkillRegistration,
+  ModuleSkillStatusResult,
+} from '../../shared/modules/skills'
 import { HOST_API_VERSION, hostSupports, type HostCapability } from '../../shared/modules/host-api'
 import {
   ensureSkillInstalled as ensureSkillInstalledOnDisk,
+  getSkillStatus as getSkillStatusOnDisk,
   registerModuleSkills,
   unregisterModuleSkills,
 } from '../builtin-skills'
@@ -119,6 +124,8 @@ export type ModuleSkillHostRegistry = {
   register(moduleId: string, registrations: readonly ModuleSkillRegistration[]): void
   unregister(moduleId: string): void
   ensureInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
+  /** The same check, read only: nothing is written to the workspace. */
+  getStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
 }
 
 // The service keys a third-party module may resolve: exactly the tokens the
@@ -139,6 +146,7 @@ const defaultSkillRegistry: ModuleSkillHostRegistry = {
   register: registerModuleSkills,
   unregister: unregisterModuleSkills,
   ensureInstalled: ensureSkillInstalledOnDisk,
+  getStatus: getSkillStatusOnDisk,
 }
 
 export type MainHost = {
@@ -183,6 +191,13 @@ export type MainHost = {
    * id answers `{ ok: false, status: 'unknown-skill' }`.
    */
   ensureSkillInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
+  /**
+   * Whether a skill is present in a workspace, without writing anything: the
+   * read half of `ensureSkillInstalled`, answering in the same vocabulary
+   * (`missing` and `update-available` are the states `ensure…` would act on).
+   * Never throws.
+   */
+  getSkillStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   /**
    * A third-party module resolves only the services the SDK publishes a token
@@ -646,6 +661,9 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       },
       ensureSkillInstalled(workspaceRoot, skillId) {
         return skillRegistry.ensureInstalled(workspaceRoot, skillId)
+      },
+      getSkillStatus(workspaceRoot, skillId) {
+        return skillRegistry.getStatus(workspaceRoot, skillId)
       },
       provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T {
         if (services.has(token.key)) {

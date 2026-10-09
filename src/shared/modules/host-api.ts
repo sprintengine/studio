@@ -34,6 +34,8 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'skills',
   'module-assets',
   'notifications',
+  // Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP.
+  'skill-status',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

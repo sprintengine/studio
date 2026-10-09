@@ -388,18 +388,54 @@ export type ModuleSkillRegistration = {
 }
 
 /**
+ * Every status the host's skill installer answers with, so you can switch on
+ * it exhaustively:
+ *
+ * - `installed` — present and current (written by the app, or nothing to write).
+ * - `updated` — `ensureSkillInstalled` replaced an older copy it had written.
+ * - `missing` — not in the workspace yet (`getSkillStatus` only; `ensure…` installs it).
+ * - `update-available` — present, but older than the copy your module ships
+ *   (`getSkillStatus` only; `ensure…` updates it).
+ * - `local` — a copy the app did not write is in the way; it is left alone.
+ * - `modified` — the app's copy was edited by hand; it is left alone.
+ * - `delivered-at-launch` — nothing is written to the workspace: a launch that
+ *   asks for this skill is handed it as a plugin of its own (a built-in skill
+ *   on a CLI whose launch carries the app's plugin directories).
+ * - `missing-source` — the skill's own files are gone from the module or app.
+ * - `missing-workspace` — no workspace root was given.
+ * - `unknown-skill` — no built-in or registered module skill has that id.
+ * - `install-failed` — the write itself failed; `message` says why.
+ */
+export type ModuleSkillStatus =
+  | 'installed'
+  | 'updated'
+  | 'missing'
+  | 'update-available'
+  | 'local'
+  | 'modified'
+  | 'delivered-at-launch'
+  | 'missing-source'
+  | 'missing-workspace'
+  | 'unknown-skill'
+  | 'install-failed'
+
+/**
  * The answer to "is this skill present in that workspace now?".
  *
- * `status` carries the installer's own vocabulary — `installed`, `updated`,
- * `local`, `modified`, `missing-source`, `missing-workspace`, `unknown-skill`,
- * `install-failed` — so you can tell "we wrote it" from "a hand-made copy is
- * in the way" from "nobody has ever heard of this skill".
+ * `ok` is "an agent launched in that workspace now would find the skill":
+ * true for `installed`, `updated`, `update-available`, `local`, `modified` and
+ * `delivered-at-launch`; false for `missing` and every failure. `status` tells
+ * "we wrote it" from "a hand-made copy is in the way" from "nobody has ever
+ * heard of this skill".
  */
 export type EnsureSkillInstalledResult = {
   ok: boolean
-  status: string
+  status: ModuleSkillStatus
   message?: string
 }
+
+/** What `getSkillStatus` answers: the same shape, read without writing anything. */
+export type ModuleSkillStatusResult = EnsureSkillInstalledResult
 
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
@@ -442,6 +478,14 @@ export type MainHost = {
    * answers `{ ok: false, status: 'unknown-skill' }`.
    */
   ensureSkillInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
+  /**
+   * Whether a skill is present in a workspace, WITHOUT writing anything — the
+   * read half of `ensureSkillInstalled`, for a door that shows "installed in
+   * this project" before the person asks for the install. Same vocabulary:
+   * `missing` and `update-available` are the two states `ensure…` would act on.
+   * Never throws. Check `host.supports('skill-status')` first.
+   */
+  getSkillStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
