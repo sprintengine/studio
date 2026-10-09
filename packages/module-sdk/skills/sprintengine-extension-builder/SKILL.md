@@ -7,8 +7,8 @@ description: Build, test, sign, publish and install SprintEngine Studio extensio
 
 An extension is a **capability module**: a folder with a `manifest.json` and
 built JavaScript that Studio loads into itself. `entry.renderer` (one ESM
-file) adds UI; `entry.main` (one CommonJS file) runs in Studio's main process
-with Node. Both get a `host` object scoped to the module, and everything the
+file) adds UI; `entry.main` (one CommonJS entry file, which may start worker
+threads from files it ships) runs in Studio's main process with Node. Both get a `host` object scoped to the module, and everything the
 module does goes through it. The contract is `@sprintengine/module-sdk` and
 nothing else — an extension never imports Studio's source.
 
@@ -74,7 +74,7 @@ Then in Studio: **Settings → Modules**, find the module, trust it.
 | A panel inside a workspace | `registerPanel` + a `registerWorkspaceType` whose layout places it | per data read | panel |
 | A new kind of workspace, with a setup step | `registerWorkspaceType({ creationStep, createWorkspace })` | `storage` for its state | workspace-type |
 | One control in the top bar | `registerTopBarItem` | — | top-bar-item |
-| Options in Settings | `registerSettingsSection` (values readable via `getModuleAppState`) | `storage` to read them elsewhere | settings-section |
+| Options in Settings | `registerSettingsSection` (values readable via `getModuleAppState`, in the renderer and in main) | `storage` to read them elsewhere | settings-section |
 | An action on a Backlog item | `registerBacklogItemAction` | `backlog.*` if it reads/writes more | backlog-action |
 | An action on files in the Files tree | `registerFileAction` | — | file-action |
 | A pick-and-close dialog over the workspace | `registerModalSurface({ launcher })` | — | — |
@@ -83,11 +83,12 @@ Then in Studio: **Settings → Modules**, find the module, trust it.
 | Hand the person a prepared chat | `host.openChat({ workspaceId, prompt })` | `conversation:operate` | backlog-action |
 | An agent that runs on a schedule | main: `getScheduledAgentsService(host)` | `scheduled-agents.manage`, `dependsOn: ["scheduled-agents"]` | — |
 | Calling an API with a key | main: `getSecretsService(host).fetchWithSecret` | `secrets` | — |
-| Calling GitHub as the user | main: `getGitHubService(host).request` | `github` | — |
-| Saving data | renderer: `get/setModuleAppState`, `get/setWorkspaceModuleState`; main: `getModuleStorage(host)` | `storage` | panel |
+| Calling GitHub as the user | main: `getGitHubService(host).request` / `.graphql` (read-only) / `.download` (logs) | `github` | — |
+| A workspace's branch and GitHub remote | `host.getWorkspaceGitInfo(workspaceId)` (renderer or main) | `ipc:workspace-read` | — |
+| Saving data | renderer: `get/setModuleAppState`, `get/setWorkspaceModuleState`; main: `getModuleStorage(host)` (`list({ prefix })`, `getMany`, `watch`), `host.getModuleDataDir()` past 1 MB | `storage` | panel |
 | Renderer ↔ main | main `registerIpc('<id>:…')`, renderer `host.invoke`; main → renderer `host.emit` / `host.subscribe` | `ipc:invoke` | chat-companion |
-| Skills agents can use | main: `host.registerSkills`, `host.ensureSkillInstalled` | — | — |
-| Files inside the module (HTML, WASM) | `host.getAssetUrl('runtime/index.html')` | — | — |
+| Skills agents can use | main: `host.registerSkills`, `host.ensureSkillInstalled`, `host.getSkillStatus` | — | — |
+| Files inside the module (HTML, WASM) | `host.getAssetUrl('runtime/index.html')`; main: `host.getAssetPath('dist/worker.cjs')` | — | — |
 
 References: [api-renderer.md](references/api-renderer.md),
 [api-main.md](references/api-main.md),
@@ -132,7 +133,8 @@ without it answers `false`; degrade with a message instead of throwing.
 - `engines.hostApi` is required. It is the SDK's `HOST_API_VERSION`; Studio
   refuses a module built for a host API it does not provide, with a message.
 - `id` is lowercase kebab-case, unique, and not a reserved Studio id
-  (`BUNDLED_MODULE_IDS`). It prefixes IPC channels, command ids and tool names.
+  (`BUNDLED_MODULE_IDS`). It prefixes IPC channels and command ids; name MCP
+  tools in a family of your own that is not a core one (api-main.md).
 - `version` is an integer. Bump it on every release.
 - `files` (the digest of every file in `module/`) is written for you by
   `dev:install` and by `sprintengine-module sign`. Never edit it by hand.
@@ -157,8 +159,9 @@ Details and fixes are in [pitfalls.md](references/pitfalls.md). The short list:
 2. **Bundle shape is fixed.** Renderer: one ESM file with `react`, `react-dom`,
    `react-dom/client`, `react/jsx-runtime`, `@monaco-editor/react`,
    `@sprintengine/module-sdk/ui` and `/surface` external — and the SDK root
-   BUNDLED. Main: one CommonJS file, `electron` external, everything else bundled
-   (an installed module has no `node_modules`). The template build scripts do this.
+   BUNDLED. Main: one CommonJS entry, `electron` external, everything else bundled
+   (an installed module has no `node_modules`); a worker thread is its own
+   bundle, started with `host.getAssetPath`. The template build scripts do this.
 3. **The renderer loads from a blob URL**, so relative URLs resolve to nothing.
    Reach module files with `host.getAssetUrl(path)`.
 4. **Any change under `module/` voids trust**, and a signed module must be
