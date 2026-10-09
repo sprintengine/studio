@@ -184,7 +184,9 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'trackers', label: 'Ticket trackers', icon: TrackersSettingsIcon },
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
   { id: 'design-system', label: 'Design system', icon: DesignSystemSettingsIcon },
-  { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
+  // Titled for what a person installs; the id stays `modules`, a persisted
+  // deep-link target (the Extensions drawer, a disabled door's explainer).
+  { id: 'modules', label: 'Extensions', icon: ModulesSettingsIcon },
   { id: 'remote', label: 'Remote', icon: RemoteSettingsIcon },
 ]
 
