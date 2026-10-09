@@ -12,6 +12,7 @@ export type BrokerFetch = (input: string, init: RequestInit) => Promise<Response
 export type BrokerHttpResponse = {
   status: number
   headers: Record<string, string>
+  /** The body as UTF-8 text, or base64 when the request asked for `bodyEncoding: 'base64'`. */
   body: string
 }
 
@@ -37,7 +38,20 @@ export async function brokerRequest(
   fetchImpl: BrokerFetch,
   url: string,
   init: { method: string; headers: Record<string, string>; body?: string },
-  options: { timeoutMs: number; maxBytes: number; label: string },
+  options: {
+    timeoutMs: number
+    maxBytes: number
+    label: string
+    /**
+     * `error` (the default) refuses a redirect outright. `manual` hands a 3xx
+     * back as an answer — status and headers, no body — so a caller that must
+     * decide where (and with which headers) to follow can look at `location`
+     * itself. Nothing here ever follows one.
+     */
+    redirect?: 'error' | 'manual'
+    /** How the body is handed back; `base64` keeps bytes intact. Defaults to `utf8`. */
+    bodyEncoding?: 'utf8' | 'base64'
+  },
 ): Promise<BrokerHttpOutcome> {
   const controller = new AbortController()
   let timedOut = false
@@ -52,7 +66,7 @@ export async function brokerRequest(
         method: init.method,
         headers: init.headers,
         ...(init.body !== undefined ? { body: init.body } : {}),
-        redirect: 'error',
+        redirect: options.redirect === 'manual' ? 'manual' : 'error',
         signal: controller.signal,
       })
     } catch {
@@ -63,10 +77,14 @@ export async function brokerRequest(
     }
     // A runtime that ignores `redirect: 'error'` (a test double, a polyfill)
     // still does not get a redirect's answer through.
-    if (
+    const isRedirect =
       response.type === 'opaqueredirect' ||
       (response.status >= 300 && response.status < 400 && response.headers.has('location'))
-    ) {
+    if (isRedirect && options.redirect === 'manual' && response.type !== 'opaqueredirect') {
+      await response.body?.cancel().catch(() => {})
+      return { ok: true, response: { status: response.status, headers: headersOf(response), body: '' } }
+    }
+    if (isRedirect) {
       await response.body?.cancel().catch(() => {})
       return {
         ok: false,
@@ -79,13 +97,10 @@ export async function brokerRequest(
       await response.body?.cancel().catch(() => {})
       return tooLarge(options)
     }
-    const body = await readCapped(response, options.maxBytes)
-    if (body === 'too_large') return tooLarge(options)
-    const headers: Record<string, string> = {}
-    response.headers.forEach((value, name) => {
-      headers[name.toLowerCase()] = value
-    })
-    return { ok: true, response: { status: response.status, headers, body } }
+    const bytes = await readCapped(response, options.maxBytes)
+    if (bytes === 'too_large') return tooLarge(options)
+    const body = bytes.toString(options.bodyEncoding === 'base64' ? 'base64' : 'utf8')
+    return { ok: true, response: { status: response.status, headers: headersOf(response), body } }
   } catch {
     if (timedOut) return timeoutFailure(options)
     return { ok: false, reason: 'failed', message: `Reading the answer from ${options.label} failed.` }
@@ -94,8 +109,16 @@ export async function brokerRequest(
   }
 }
 
-async function readCapped(response: Response, maxBytes: number): Promise<string | 'too_large'> {
-  if (!response.body) return ''
+function headersOf(response: Response): Record<string, string> {
+  const headers: Record<string, string> = {}
+  response.headers.forEach((value, name) => {
+    headers[name.toLowerCase()] = value
+  })
+  return headers
+}
+
+async function readCapped(response: Response, maxBytes: number): Promise<Buffer | 'too_large'> {
+  if (!response.body) return Buffer.alloc(0)
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let total = 0
@@ -109,7 +132,7 @@ async function readCapped(response: Response, maxBytes: number): Promise<string 
     }
     chunks.push(value)
   }
-  return Buffer.concat(chunks).toString('utf8')
+  return Buffer.concat(chunks)
 }
 
 function timeoutFailure(options: { timeoutMs: number; label: string }): BrokerHttpOutcome {

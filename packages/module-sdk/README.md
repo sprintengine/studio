@@ -88,7 +88,9 @@ A folder with a `manifest.json` (`CapabilityManifest`) and built JavaScript:
 - **`entry.renderer`** — a single-file ESM bundle exporting
   `registerRenderer(host)`. Adds UI.
 - **`entry.main`** — a CommonJS bundle exporting `registerMain(host)`. Runs in
-  Studio's main process with Node.
+  Studio's main process with Node. It is one entry file, but it may start
+  worker threads from other files the module ships:
+  `new Worker(host.getAssetPath('dist/worker.cjs'))`.
 - **`entry.preload`** is reserved and never loaded.
 
 Both registration functions may be `async`: the host waits for the returned
@@ -336,6 +338,24 @@ a host) and the rest of `params` becomes the query string. Anything that could
 move the request elsewhere is `invalid_route`. Declare `github`; check
 `host.supports('github')`.
 
+Beyond plain requests:
+
+- **Headers and cheap polling** (`supports('github-headers')`): every answer
+  carries `headers` narrowed to `x-ratelimit-*`, `link`, `etag` and
+  `retry-after`. Send an `etag` back as `ifNoneMatch` and an unchanged resource
+  answers `{ ok: true, status: 304, data: null }`, free of the rate limit.
+  `accept` takes one of GitHub's media types (`ModuleGitHubMediaType`), such as
+  `application/vnd.github.diff`.
+- **Read-only GraphQL** (`supports('github-graphql')`):
+  `github.graphql(query, variables)`. A document holding a top-level `mutation`
+  or `subscription` is refused (`invalid_query`) before it is sent, so a poll is
+  a read, not a write acting as the person. `data` is `{ data, errors? }`.
+- **Downloads** (`supports('github-download')`): `github.download({ route,
+  params, encoding? })` for a job's logs or an archive. GitHub answers those
+  with a redirect to its own storage; the host follows that one redirect only
+  to a GitHub storage host and strips the token before it does
+  (`redirect_not_allowed` otherwise).
+
 ## The main host
 
 `MainHost` (handed to `registerMain`):
@@ -364,8 +384,33 @@ move the request elsewhere is `invalid_route`. Declare `github`; check
   changing state unless it declares `mutates: false`; declare that only on a
   tool that genuinely reads. A disabled module's tools stay listed and answer
   an enable error instead of running.
-- `registerSkills(skills)` / `ensureSkillInstalled(workspaceRoot, skillId)` —
-  see "Skills a module ships".
+- `registerSkills(skills)` / `ensureSkillInstalled(workspaceRoot, skillId)` /
+  `getSkillStatus(workspaceRoot, skillId)` — see "Skills a module ships".
+- `getModuleAppState(key)` / `watchModuleAppState(cb)` — your module's
+  app-level state (what your Settings section writes), read-only, persisted, so
+  `entry.main` sees the person's settings with no window open
+  (`supports('main-app-state')`).
+- `getWorkspaceGitInfo(workspaceId)` — the branch and remotes of a workspace,
+  each remote with `owner/repo` when it is on GitHub (SSH host aliases
+  resolved). Declare `ipc:workspace-read`; it is checked.
+- `getModuleDataDir()` — your module's own directory under the app's user
+  data, for data past module storage's 1 MB value limit; removed at uninstall.
+- `getAssetPath(relativePath)` — the absolute path of a file your module
+  ships, for a worker thread or a data file; only verified files whose bytes
+  still match resolve.
+
+MCP tool names are compared as clients file them (`a.b` and `a_b` are one
+name): a name that matches a core gateway tool, falls in one of the shell's
+families (`browser`, `canvas`, `editor`, `tour`, `terminal`) or matches another
+module's tool is a registration error naming the conflict. The core families
+(`agent`, `backlog`, `cli`, `conversation`, `local_server`, `marketplace`,
+`module`, `pull_request`, `schedule`, `tailnet`, `workspace`, `worktree`, and
+`studio`, `sprintengine`, `app`) are reserved for core tools; name yours in a
+family of your own (`decisions.record`). The gateway does not rename or prefix
+module tools: the name you register is the name agents see. A tool's handler
+receives `context.metadata.verified`: true when a launch token or the tailnet
+proved who is calling (`supports('mcp-verified-identity')`); a chat Studio
+launched always arrives verified with `workspaceId` and `agentId`.
 
 ## The renderer host
 
@@ -410,13 +455,15 @@ load.
   trigger for a modal surface unless you declare a `launcher` (a row in the
   workspace pane's kind list), so these are how you open one.
 - **Workspaces:** `getWorkspace`, `listWorkspaces`, `watchWorkspaces`,
-  `getWorkingRoot`, `watchWorkspaceFile`, `openWorkspace(typeId)`
-  (declare `ipc:workspace-read`; `filesystem:read-workspace` for file watches).
+  `getWorkingRoot`, `getWorkspaceGitInfo`, `watchWorkspaceFile`,
+  `openWorkspace(typeId)` (declare `ipc:workspace-read`;
+  `filesystem:read-workspace` for file watches).
 - **Chats:** `openChat`, `listChatRuntimes`, `focusTab` (above).
 - **State:** `getWorkspaceModuleState` / `setWorkspaceModuleState` (your entry
   on a workspace, synced across windows) and `getModuleAppState` /
   `setModuleAppState` / `watchModuleAppState` (app-level, shared with your
-  Settings section's values). Declare `storage`.
+  Settings section's values, and readable from `entry.main` with
+  `MainHost.getModuleAppState`). Declare `storage`.
 - **Backlog:** `listBacklogItems`, `watchBacklogItems(id, cb, { onError })`,
   `getBacklogLocation` (declare `backlog.read`); `createBacklogItem`,
   `updateBacklogStatus`, `updateBacklogTriage`, `addBacklogLink`,
@@ -471,6 +518,14 @@ and optionally per workspace. Workspace keys live under the workspace's
 values up to 1 MB, atomic writes. Declare `storage` and
 `dependsOn: ["agent-runtime"]`.
 
+`list({ prefix })` and `getMany({ keys })` read a record family in one call
+(`supports('storage-query')`). `watch({ workspaceRoot? }, cb)` says which keys
+changed: your own writes at once, and a change made by other means — a
+`git pull`, a hand edit — within a couple of seconds (`supports('storage-watch')`).
+Whether a project commits `.sprintengine/modules/<moduleId>/` is the project's
+call; say in your README which your data wants. Data past the value limit
+belongs in `host.getModuleDataDir()` (`supports('module-data-dir')`).
+
 ## Workspaces from entry.main
 
 ```ts
@@ -481,7 +536,12 @@ const view = await host.requireService(WorkspaceContextToken).get(workspaceId) /
 ```
 
 `create` resolves once the workspace is confirmed, so a returned id is real.
-The context service (declare `ipc:workspace-read`) also has `list()`.
+The context service (declare `ipc:workspace-read`) also has `list()`: the open
+workspaces, each with `open: true`. `list({ includeClosed: true })` adds the
+workspaces closed on this machine, newest first, with `open: false` and
+`closedAt` (`supports('workspace-history')`), so a module can tie what it kept
+back to a project that is no longer open. `host.getWorkspaceGitInfo(id)` reads
+a workspace's branch and remotes without parsing `.git` yourself.
 
 <!-- Backlog, usage and activity services -->
 
@@ -629,14 +689,23 @@ host.registerSkills([
 ])
 ```
 
-`sourceDir` is relative to your module root and must stay inside it. An id a
-built-in skill or another module holds is a registration error, and unloading
-your module takes its skills with it. `'agents'` installs into
-`.agents/skills/<id>`; `'all-native'` also into every installed agent's own
-skill directory — pick it whenever a prompt invokes the skill by name. A skill
-you pass to `create` / `openChat` is installed before the turn;
-`ensureSkillInstalled(workspaceRoot, id)` installs one ahead of time and never
-throws.
+Ship each skill as `module/skills/<id>/SKILL.md`. `sourceDir` is relative to
+your module root (the `module/` folder) and must stay inside it; the skill's
+files are module files, signed with the rest. An id a built-in skill or another
+module holds is a registration error, and unloading your module takes its
+skills with it. `'agents'` installs into `.agents/skills/<id>`; `'all-native'`
+also into every installed agent's own skill directory — pick it whenever a
+prompt invokes the skill by name.
+
+Registering writes nothing to a workspace. A skill reaches a chat when the
+chat's launch names it (`create` / `openChat` / a scheduled agent's `skills`
+install it before the first turn), or once `ensureSkillInstalled(workspaceRoot,
+id)` has put it in the workspace — after that every new chat there finds it,
+the person's own included. `getSkillStatus(workspaceRoot, id)` asks without
+writing. Both never throw and answer a `ModuleSkillStatus`: `installed`,
+`updated`, `missing`, `update-available`, `local`, `modified`,
+`delivered-at-launch`, `missing-source`, `missing-workspace`, `unknown-skill`,
+`install-failed`.
 
 ## Accepting drags from the Backlog and Files panels
 

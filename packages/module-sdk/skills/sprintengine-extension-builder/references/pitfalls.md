@@ -21,7 +21,10 @@ of your own chunks do not work: there is one file.
 
 **The main bundle is CommonJS with only `electron` external.** The installed
 module folder has no `node_modules`; anything left external is missing at
-load. `react` has no business in `entry.main`.
+load. `react` has no business in `entry.main`. Worker threads are fine: bundle
+each worker as its own CommonJS file in `module/dist/` and start it with
+`new Worker(host.getAssetPath('dist/worker.cjs'))` (not a path you build from
+`__dirname`, which skips the check that the file is the one you signed).
 
 **The renderer bundle runs from a blob URL.** `new URL('./x.png', import.meta.url)`,
 relative `fetch`, a relative `<img src>` all resolve to nothing. Package the

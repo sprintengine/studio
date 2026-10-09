@@ -141,6 +141,7 @@ import type {
 import type { TailnetPeerScan } from './tailnet-peers'
 import type { TailnetShareResult, TailnetShareStatus } from './tailnet-share'
 import type { RepositoryIdentityRead } from './repository-identity'
+import type { ModuleWorkspaceGitInfoResult } from './modules/workspace-view'
 import type {
   MeshBrowse,
   MeshConnection,
@@ -1450,6 +1451,8 @@ export type ElectronApi = {
    * must not be written down as one. See `RepositoryIdentityRead`.
    */
   getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentityRead>
+  /** A folder's branch and remotes, for a capability module's `getWorkspaceGitInfo`. */
+  getModuleWorkspaceGitInfo: (folderPath: string) => Promise<ModuleWorkspaceGitInfoResult>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>
@@ -1779,6 +1782,9 @@ export type ElectronApi = {
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
+  // Renderer → main mirror of every module's app-level state (`module:<id>`
+  // namespaces), so a module's entry.main reads its settings with no window.
+  setModuleAppState: (bag: Record<string, Record<string, unknown>>) => Promise<void>
   // Renderer → main mirror of the module registry the user sees; main
   // caches the last push in memory for its own read surfaces.
   setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot) => Promise<ModuleRegistrySnapshotWriteResult>

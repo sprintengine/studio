@@ -348,13 +348,23 @@ export type McpToolResult = {
 }
 
 /**
- * Who is calling over the gateway, as far as the connection declared.
+ * Who is calling over the gateway.
  *
- * `studio-agent`/`external-local` arrive on the owner-only local socket and
- * their identity is advisory. `remote-tailnet` arrives on the opt-in tailnet
- * listener, where the transport proved which paired device is calling before
- * dispatch — `deviceId`, `deviceName`, and `peerNode` are set by the app, not
- * by the caller.
+ * `studio-agent`/`external-local` arrive on the owner-only local socket.
+ * There the identity is a claim — whatever has filesystem access can declare
+ * an agent of its choosing — unless the connection presented the launch token
+ * Studio issued that agent's launch, which proves it (`verified: true`). `remote-tailnet`
+ * arrives on the opt-in tailnet listener, where the transport proved which
+ * paired device is calling before dispatch — `deviceId`, `deviceName`, and
+ * `peerNode` are set by the app, not by the caller.
+ *
+ * A chat Studio launched always connects with its launch token, so its calls
+ * arrive as `kind: 'studio-agent'`, `verified: true`, with `workspaceId` and
+ * `agentId` always set. `agentName` (the chat's display name) and `cliId` (the
+ * runtime id, the same ids `listChatRuntimes()` lists) are set whenever the
+ * launch recorded them, which a chat started from the app always does; an
+ * agent from a plain terminal declares whatever it likes and stays
+ * `verified: false`.
  */
 export type McpConnectionMetadata = {
   kind: 'studio-agent' | 'external-local' | 'remote-tailnet'
@@ -365,6 +375,14 @@ export type McpConnectionMetadata = {
   deviceId?: string
   deviceName?: string
   peerNode?: string
+  /**
+   * True when a launch token or the tailnet transport PROVED the identity
+   * above; false when it is only declared. The host sets it on every call to
+   * your tool (`host.supports('mcp-verified-identity')`); a host older than
+   * this field leaves it out, so read a missing value as false. Label
+   * authorship as verified only on `true`.
+   */
+  verified?: boolean
 }
 
 export type McpConnectionContext = {
@@ -374,7 +392,18 @@ export type McpConnectionContext = {
 /**
  * One MCP tool contributed to the always-on Studio gateway. `inputSchema` is a
  * JSON Schema object; array-typed fields must stay arrays end to end. Tool
- * names are a public contract for agents — pick stable, module-prefixed names.
+ * names are a public contract for agents — pick stable names of your own, in a
+ * family named for your module (`decisions.record`, `decisions_list`).
+ *
+ * The gateway serves the name verbatim. MCP clients that take no dot write
+ * `a_b` for `a.b`, so names are compared in that form: a name that matches a
+ * core gateway tool (`backlog_list` vs the core's `backlog.list`), falls in one
+ * of the shell's families (`browser`, `canvas`, `editor`, `tour`, `terminal`),
+ * or matches another module's tool is a registration error that names the
+ * conflict. The core families (`agent`, `backlog`, `conversation`, `schedule`,
+ * `workspace`, `worktree`, `module`, `marketplace`, `tailnet`, `studio`,
+ * `sprintengine`, `app`, …) are reserved: new core tools land in them, so keep
+ * out of them even where no tool collides today.
  */
 export type McpToolRegistration = {
   name: string
@@ -428,18 +457,54 @@ export type ModuleSkillRegistration = {
 }
 
 /**
+ * Every status the host's skill installer answers with, so you can switch on
+ * it exhaustively:
+ *
+ * - `installed` — present and current (written by the app, or nothing to write).
+ * - `updated` — `ensureSkillInstalled` replaced an older copy it had written.
+ * - `missing` — not in the workspace yet (`getSkillStatus` only; `ensure…` installs it).
+ * - `update-available` — present, but older than the copy your module ships
+ *   (`getSkillStatus` only; `ensure…` updates it).
+ * - `local` — a copy the app did not write is in the way; it is left alone.
+ * - `modified` — the app's copy was edited by hand; it is left alone.
+ * - `delivered-at-launch` — nothing is written to the workspace: a launch that
+ *   asks for this skill is handed it as a plugin of its own (a built-in skill
+ *   on a CLI whose launch carries the app's plugin directories).
+ * - `missing-source` — the skill's own files are gone from the module or app.
+ * - `missing-workspace` — no workspace root was given.
+ * - `unknown-skill` — no built-in or registered module skill has that id.
+ * - `install-failed` — the write itself failed; `message` says why.
+ */
+export type ModuleSkillStatus =
+  | 'installed'
+  | 'updated'
+  | 'missing'
+  | 'update-available'
+  | 'local'
+  | 'modified'
+  | 'delivered-at-launch'
+  | 'missing-source'
+  | 'missing-workspace'
+  | 'unknown-skill'
+  | 'install-failed'
+
+/**
  * The answer to "is this skill present in that workspace now?".
  *
- * `status` carries the installer's own vocabulary — `installed`, `updated`,
- * `local`, `modified`, `missing-source`, `missing-workspace`, `unknown-skill`,
- * `install-failed` — so you can tell "we wrote it" from "a hand-made copy is
- * in the way" from "nobody has ever heard of this skill".
+ * `ok` is "an agent launched in that workspace now would find the skill":
+ * true for `installed`, `updated`, `update-available`, `local`, `modified` and
+ * `delivered-at-launch`; false for `missing` and every failure. `status` tells
+ * "we wrote it" from "a hand-made copy is in the way" from "nobody has ever
+ * heard of this skill".
  */
 export type EnsureSkillInstalledResult = {
   ok: boolean
-  status: string
+  status: ModuleSkillStatus
   message?: string
 }
+
+/** What `getSkillStatus` answers: the same shape, read without writing anything. */
+export type ModuleSkillStatusResult = EnsureSkillInstalledResult
 
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
@@ -454,8 +519,9 @@ export type MainHost = {
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the Studio gateway, owned by this module's id. A
-   * tool name another module already registered is a registration error (the
-   * whole batch is rejected). Availability follows the module's enablement
+   * tool name another module already registered, or one that collides with a
+   * core gateway tool (see `McpToolRegistration` for the rule), is a
+   * registration error naming the conflict (the whole batch is rejected). Availability follows the module's enablement
    * live: a disabled module's tools stay listed on the gateway and answer
    * calls with an actionable enable error instead of running. An MCP tool is
    * agent-reachable capability: declare the `mcp:tools` permission, without
@@ -482,6 +548,64 @@ export type MainHost = {
    * answers `{ ok: false, status: 'unknown-skill' }`.
    */
   ensureSkillInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
+  /**
+   * Whether a skill is present in a workspace, WITHOUT writing anything — the
+   * read half of `ensureSkillInstalled`, for a door that shows "installed in
+   * this project" before the person asks for the install. Same vocabulary:
+   * `missing` and `update-available` are the two states `ensure…` would act on.
+   * Never throws. Check `host.supports('skill-status')` first.
+   */
+  getSkillStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
+  /**
+   * Your module's private directory under the app's per-user data
+   * (`<userData>/module-data/<moduleId>`), created on demand and removed when
+   * the module is uninstalled. For data past module storage's 1 MB value
+   * limit — caches, indexes, downloaded blobs — laid out however you like.
+   * It is per user and per machine, never synced, and outside every project.
+   * Disclosed under the `storage` permission. Throws when the host has no
+   * storage service (check `host.supports('module-data-dir')`).
+   */
+  getModuleDataDir(): string
+  /**
+   * The absolute path of a file packaged inside your module — the main-side
+   * twin of `RendererHost.getAssetUrl`, for what Node wants a path for:
+   * `new Worker(host.getAssetPath('dist/worker.cjs'))`, a WASM file, a data
+   * table. Only a file the module was verified with resolves, and only while
+   * its bytes still match: anything else (an unlisted file, traversal, a
+   * leading slash, a file changed since install) throws. Worker threads
+   * loaded this way are supported; list every file they load in the build so
+   * it is signed with the rest. Check `host.supports('main-asset-path')`.
+   */
+  getAssetPath(relativePath: string): string
+  /**
+   * A workspace's checked-out branch and remotes, each remote with
+   * `owner/repo` when it is on GitHub — so a VCS-aware module stops parsing
+   * `.git` → gitdir → commondir → config itself, and needs no
+   * `filesystem:read-workspace` to do it. Declare `ipc:workspace-read`
+   * (checked: `permission_missing` without it). Never throws. The renderer
+   * twin is `RendererHost.getWorkspaceGitInfo`. Check
+   * `host.supports('workspace-git-info')` first.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
+  /**
+   * Read one key of your module's APP-level state from `entry.main` — the
+   * same namespace your Settings section's `setValue` and
+   * `RendererHost.setModuleAppState` write, as the windows last pushed it.
+   * Persisted, so it reads with no window open: a scheduler in `entry.main`
+   * sees the run time the person chose without a second store and an IPC
+   * sync. Read-only (main never writes it back); a value set while no window
+   * was open arrives with the next window. `undefined` when the key has never
+   * been set. Never put a secret here — use the secrets service.
+   * Check `host.supports('main-app-state')` first.
+   */
+  getModuleAppState<T = unknown>(key: string): T | undefined
+  /**
+   * Hear your module's whole app-state namespace whenever it changes — a
+   * Settings change in whichever window — not on subscribe (read the current value
+   * with `getModuleAppState`). Returns the unsubscriber; unloading your module
+   * drops it too. The `entry.main` twin of `RendererHost.watchModuleAppState`.
+   */
+  watchModuleAppState(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
@@ -598,6 +722,57 @@ export type ModuleWorkspaceView = {
 }
 
 /**
+ * One workspace as `WorkspaceContextService.list` reports it: the view, plus
+ * whether it is open now. With `includeClosed`, workspaces closed on this
+ * machine are listed after the open ones, newest first, as they were when
+ * they closed; their folders may since have moved or gone.
+ */
+export type ModuleWorkspaceListEntry = ModuleWorkspaceView & {
+  open: boolean
+  /** When a closed workspace was closed (epoch ms); absent while it is open. */
+  closedAt?: number
+}
+
+export type ModuleWorkspaceListOptions = {
+  /**
+   * Also list the workspaces closed on this machine (the most recent 500),
+   * so a module can tie what it kept — a transcript under the project's
+   * `.sprintengine/`, its own storage — back to a project no longer open.
+   * Check `host.supports('workspace-history')` first.
+   */
+  includeClosed?: boolean
+}
+
+/** A git remote of a workspace's repository, as `git remote -v` names it (fetch URL). */
+export type ModuleWorkspaceGitRemote = {
+  name: string
+  /** The fetch URL, with credentials (a token in the userinfo) removed. */
+  url: string
+  /** `owner/repo` when the remote is a GitHub repository, SSH host aliases resolved. */
+  github?: string
+}
+
+export type ModuleWorkspaceGitInfoErrorCode =
+  | 'permission_missing'
+  | 'unknown_workspace'
+  | 'no_folder'
+  | 'not_a_repository'
+  // The folder is on another machine, or the host has no git reader wired yet.
+  | 'unavailable'
+  | 'git_failed'
+
+/**
+ * A workspace's checked-out branch (null on a detached HEAD) and its remotes,
+ * read by git from the workspace's own folder — so a worktree reports its own
+ * branch and a submodule its own repository, and a remote whose SSH host is an
+ * alias for github.com in ~/.ssh/config still carries `github`. (`Match`
+ * blocks and `Include`d files are not followed when resolving an alias.)
+ */
+export type ModuleWorkspaceGitInfoResult =
+  | { ok: true; branch: string | null; remotes: ModuleWorkspaceGitRemote[] }
+  | { ok: false; code: ModuleWorkspaceGitInfoErrorCode; message: string }
+
+/**
  * Resolve a workspace id to its read-only view from `entry.main`. A null
  * resolution means "not currently resolvable" — an unknown id, or workspace
  * state that has not re-hydrated yet (e.g. right after app launch). Never a
@@ -611,9 +786,11 @@ export type WorkspaceContextService = {
    * Every workspace currently open, in registry order. The main-side twin of
    * `RendererHost.listWorkspaces`, and the only way `entry.main` can answer
    * "which project roots are open" — an MCP tool your module contributes runs
-   * with no window and no renderer to ask.
+   * with no window and no renderer to ask. Each entry says `open: true`;
+   * with `includeClosed`, the workspaces closed on this machine follow, newest
+   * first, with `open: false` and `closedAt`.
    */
-  list(): Promise<ModuleWorkspaceView[]>
+  list(options?: ModuleWorkspaceListOptions): Promise<ModuleWorkspaceListEntry[]>
 }
 
 /**
@@ -881,15 +1058,48 @@ export type ModuleStorageResult<T> = ({ ok: true } & T) | { ok: false; code: Mod
  * the module's global store. Declare the `storage` permission (install-time
  * disclosure). Renderer panels reach storage through the module's own
  * `host.invoke` channels.
+ *
+ * Workspace-scoped keys are plain files in the project, so they travel with it
+ * (commit `.sprintengine/modules/<moduleId>/` if your data belongs to the
+ * project, ignore it if it does not — that is the project's call, not the
+ * host's). Data past the 1 MB value limit — caches, blobs, indexes — belongs
+ * in `MainHost.getModuleDataDir()` instead.
  */
 export type ModuleStorageService = {
   /** `found: false` (with `value: undefined`) when the key has never been set. */
   get(input: { key: string; workspaceRoot?: string }): Promise<ModuleStorageResult<{ value: unknown; found: boolean }>>
   set(input: { key: string; value: unknown; workspaceRoot?: string }): Promise<ModuleStorageResult<object>>
   delete(input: { key: string; workspaceRoot?: string }): Promise<ModuleStorageResult<{ deleted: boolean }>>
-  /** Keys in the scope, sorted; an empty store lists `[]`, never an error. */
-  list(input?: { workspaceRoot?: string }): Promise<ModuleStorageResult<{ keys: string[] }>>
+  /**
+   * Keys in the scope, sorted; an empty store lists `[]`, never an error.
+   * With `prefix`, only the keys that start with it (`decision.` lists one
+   * record family). `prefix` needs `host.supports('storage-query')`.
+   */
+  list(input?: { workspaceRoot?: string; prefix?: string }): Promise<ModuleStorageResult<{ keys: string[] }>>
+  /**
+   * Read up to 1000 keys in one call. `values` holds the keys that are set; a
+   * key never set is simply absent. A corrupt record fails the whole call
+   * (`io_error` naming the key), exactly as `get` would.
+   * Check `host.supports('storage-query')` first.
+   */
+  getMany(input: {
+    keys: string[]
+    workspaceRoot?: string
+  }): Promise<ModuleStorageResult<{ values: Record<string, unknown> }>>
+  /**
+   * Hear which keys of a scope changed — set or deleted — as
+   * `{ keys: string[] }`. Your own writes are reported at once; a change made
+   * by other means (a `git pull` into the workspace, a teammate's commit, a
+   * file edited by hand) within a couple of seconds. Like a module event it
+   * is a signal, not state: read the keys again. Returns the unsubscriber —
+   * call it in `onShutdown`. Throws for an invalid `workspaceRoot`.
+   * Check `host.supports('storage-watch')` first.
+   */
+  watch(input: { workspaceRoot?: string }, listener: (change: ModuleStorageChange) => void): () => void
 }
+
+/** Which keys of a watched scope changed (were set or deleted), sorted. */
+export type ModuleStorageChange = { keys: string[] }
 
 // The moduleId-first registry the app provides; derived from the published
 // service so the two shapes cannot drift.
@@ -920,6 +1130,8 @@ export function getModuleStorage(host: MainHost): ModuleStorageService {
     set: (input) => registry.set(moduleId, input),
     delete: (input) => registry.delete(moduleId, input),
     list: (input) => registry.list(moduleId, input),
+    getMany: (input) => registry.getMany(moduleId, input),
+    watch: (input, listener) => registry.watch(moduleId, input, listener),
   }
 }
 
@@ -2017,6 +2229,16 @@ export type RendererHost = {
    */
   listWorkspaces(): Promise<ModuleWorkspaceView[]>
   /**
+   * A workspace's checked-out branch (null when detached) and its remotes,
+   * each with `owner/repo` when it is on GitHub — SSH host aliases from
+   * ~/.ssh/config resolved. Read by git from the workspace's working root, so
+   * a worktree reports its own branch. The `entry.main` twin is
+   * `MainHost.getWorkspaceGitInfo`. Declare `ipc:workspace-read` (checked:
+   * `permission_missing` without it). Never throws. Check
+   * `host.supports('workspace-git-info')` first.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
+  /**
    * Observe the open workspaces: `cb` fires once with the current list, then
    * on every change (deduped by value, so an unrelated store write does not
    * wake it). Returns the unsubscriber — call it on unmount. Before the shell
@@ -2439,6 +2661,10 @@ export {
 export {
   getGitHubService,
   getSecretsService,
+  type ModuleGitHubDownloadRequest,
+  type ModuleGitHubDownloadResponse,
+  type ModuleGitHubErrorCode,
+  type ModuleGitHubMediaType,
   type ModuleGitHubRequest,
   type ModuleGitHubResponse,
   type ModuleGitHubService,

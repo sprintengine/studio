@@ -65,10 +65,13 @@ import type {
 import type {
   EnsureSkillInstalledResult as AppEnsureSkillInstalledResult,
   ModuleSkillRegistration as AppModuleSkillRegistration,
+  ModuleSkillStatus as AppModuleSkillStatus,
+  ModuleSkillStatusResult as AppModuleSkillStatusResult,
   ModuleSkillTargetPolicy as AppModuleSkillTargetPolicy,
 } from '../../../src/shared/modules/skills'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
+  ModuleStorageChange as AppModuleStorageChange,
   ModuleStorageErrorCode as AppModuleStorageErrorCode,
   ModuleStorageRegistry as AppModuleStorageRegistry,
   ModuleStorageResult as AppModuleStorageResult,
@@ -137,7 +140,13 @@ import type {
   CommandScope as AppCommandScope,
   ModuleCommandContext as AppModuleCommandContext,
 } from '../../../src/renderer/src/commands/types'
-import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
+import type {
+  ModuleWorkspaceGitInfoResult as AppModuleWorkspaceGitInfoResult,
+  ModuleWorkspaceGitRemote as AppModuleWorkspaceGitRemote,
+  ModuleWorkspaceListEntry as AppModuleWorkspaceListEntry,
+  ModuleWorkspaceListOptions as AppModuleWorkspaceListOptions,
+  ModuleWorkspaceView as AppModuleWorkspaceView,
+} from '../../../src/shared/modules/workspace-view'
 import type { WorkspaceFileWatchEvent as AppWorkspaceFileWatchEvent } from '../../../src/renderer/src/modules/workspace-file-watch'
 import type { ModuleColorScheme as AppModuleColorScheme } from '../../../src/renderer/src/modules/color-scheme-watch'
 import type {
@@ -195,6 +204,8 @@ import type {
   McpToolRegistration as SdkMcpToolRegistration,
   EnsureSkillInstalledResult as SdkEnsureSkillInstalledResult,
   ModuleSkillRegistration as SdkModuleSkillRegistration,
+  ModuleSkillStatus as SdkModuleSkillStatus,
+  ModuleSkillStatusResult as SdkModuleSkillStatusResult,
   ModuleSkillTargetPolicy as SdkModuleSkillTargetPolicy,
   McpToolResult as SdkMcpToolResult,
   ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
@@ -210,10 +221,15 @@ import type {
   ModuleSource as SdkModuleSource,
   ModuleColorScheme as SdkModuleColorScheme,
   ModuleFocusTabInput as SdkModuleFocusTabInput,
+  ModuleStorageChange as SdkModuleStorageChange,
   ModuleStorageErrorCode as SdkModuleStorageErrorCode,
   ModuleStorageResult as SdkModuleStorageResult,
   ModuleStorageService as SdkModuleStorageService,
   ModuleTrustStatus as SdkModuleTrustStatus,
+  ModuleWorkspaceGitInfoResult as SdkModuleWorkspaceGitInfoResult,
+  ModuleWorkspaceGitRemote as SdkModuleWorkspaceGitRemote,
+  ModuleWorkspaceListEntry as SdkModuleWorkspaceListEntry,
+  ModuleWorkspaceListOptions as SdkModuleWorkspaceListOptions,
   ModuleWorkspaceView as SdkModuleWorkspaceView,
   WorkspaceContextService as SdkWorkspaceContextService,
   PreviewSlot as SdkPreviewSlot,
@@ -396,6 +412,30 @@ expectType<IsExact<AppModuleSkillRegistration, SdkModuleSkillRegistration>>()
 expectType<IsExact<AppEnsureSkillInstalledResult, SdkEnsureSkillInstalledResult>>()
 expectType<IsExact<AppMainHost['registerSkills'], SdkMainHost['registerSkills']>>()
 expectType<IsExact<AppMainHost['ensureSkillInstalled'], SdkMainHost['ensureSkillInstalled']>>()
+
+// ── Main-host plumbing (settings, workspaces, storage, GitHub, skills, MCP) ──
+// Each addition pinned exactly, for the reason the whole file gives.
+// Skills: the exhaustive status vocabulary and the read-only check.
+expectType<IsExact<AppModuleSkillStatus, SdkModuleSkillStatus>>()
+expectType<IsExact<AppModuleSkillStatusResult, SdkModuleSkillStatusResult>>()
+expectType<IsExact<AppMainHost['getSkillStatus'], SdkMainHost['getSkillStatus']>>()
+// Storage: the change signal a watch delivers, and the module's own directory
+// and asset paths on the host.
+expectType<IsExact<AppModuleStorageChange, SdkModuleStorageChange>>()
+expectType<IsExact<AppMainHost['getModuleDataDir'], SdkMainHost['getModuleDataDir']>>()
+expectType<IsExact<AppMainHost['getAssetPath'], SdkMainHost['getAssetPath']>>()
+// Workspaces: closed history on the main-side list, and the git read on both hosts.
+expectType<IsExact<AppModuleWorkspaceListEntry, SdkModuleWorkspaceListEntry>>()
+expectType<IsExact<AppModuleWorkspaceListOptions, SdkModuleWorkspaceListOptions>>()
+expectType<IsExact<AppModuleWorkspaceGitRemote, SdkModuleWorkspaceGitRemote>>()
+expectType<IsExact<AppModuleWorkspaceGitInfoResult, SdkModuleWorkspaceGitInfoResult>>()
+expectType<IsExact<AppMainHost['getWorkspaceGitInfo'], SdkMainHost['getWorkspaceGitInfo']>>()
+expectType<IsExact<AppRendererHost['getWorkspaceGitInfo'], SdkRendererHost['getWorkspaceGitInfo']>>()
+// Settings in main: the app-state pair on MainHost reads exactly like the renderer's.
+expectType<IsExact<AppMainHost['getModuleAppState'], SdkMainHost['getModuleAppState']>>()
+expectType<IsExact<AppMainHost['watchModuleAppState'], SdkMainHost['watchModuleAppState']>>()
+expectType<IsExact<AppMainHost['getModuleAppState'], AppRendererHost['getModuleAppState']>>()
+expectType<IsExact<AppMainHost['watchModuleAppState'], AppRendererHost['watchModuleAppState']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()
@@ -619,6 +659,11 @@ expectType<IsExact<appBrokers.ModuleSecretsService, sdk.ModuleSecretsService>>()
 expectType<IsExact<appBrokers.ModuleGitHubRequest, sdk.ModuleGitHubRequest>>()
 expectType<IsExact<appBrokers.ModuleGitHubResponse, sdk.ModuleGitHubResponse>>()
 expectType<IsExact<appBrokers.ModuleGitHubService, sdk.ModuleGitHubService>>()
+// GitHub broker additions (headers, conditional requests, read-only GraphQL, download).
+expectType<IsExact<appBrokers.ModuleGitHubMediaType, sdk.ModuleGitHubMediaType>>()
+expectType<IsExact<appBrokers.ModuleGitHubErrorCode, sdk.ModuleGitHubErrorCode>>()
+expectType<IsExact<appBrokers.ModuleGitHubDownloadRequest, sdk.ModuleGitHubDownloadRequest>>()
+expectType<IsExact<appBrokers.ModuleGitHubDownloadResponse, sdk.ModuleGitHubDownloadResponse>>()
 
 // The moduleId-first registries the app provides must accept exactly what the
 // SDK helpers forward (the same derivation the storage registry is pinned by).

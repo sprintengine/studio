@@ -20,6 +20,8 @@ export type ThirdPartyMainLoadPlan = {
   modules: CapabilityModule[]
   /** Install folder per module id — what contains its entries and its skills. */
   moduleRoots: Record<string, string>
+  /** The file digests each trusted module was verified with — what `getAssetPath` resolves against. */
+  verifiedFiles: Record<string, ModuleFileDigests>
   ineligible: Record<string, ModuleResolutionErrorCode>
   launchErrors: MainModuleLoadError[]
   diagnostics: ThirdPartyMainLoadDiagnostics
@@ -69,6 +71,7 @@ export function planThirdPartyMainModules(
 ): ThirdPartyMainLoadPlan {
   const modules: CapabilityModule[] = []
   const moduleRoots: Record<string, string> = {}
+  const verifiedFiles: Record<string, ModuleFileDigests> = {}
   const ineligible: Record<string, ModuleResolutionErrorCode> = {}
   const electronMain = options.electronMain ?? true
 
@@ -81,6 +84,9 @@ export function planThirdPartyMainModules(
     )
     if (!electronMain && needsElectron) skippedForElectron.add(installed.manifest.id)
     moduleRoots[installed.manifest.id] = installed.moduleRoot
+    if (isLoadEligible(installed.trust.status) && installed.trust.verifiedFiles) {
+      verifiedFiles[installed.manifest.id] = installed.trust.verifiedFiles
+    }
     if (isLoadEligible(installed.trust.status)) continue
     ineligible[installed.manifest.id] = installed.trust.status === 'invalid' ? 'invalid_signature' : 'untrusted'
   }
@@ -88,6 +94,7 @@ export function planThirdPartyMainModules(
   return {
     modules,
     moduleRoots,
+    verifiedFiles,
     ineligible,
     launchErrors: input.rejected.map(rejectionToLoadError),
     diagnostics: { rejected: input.rejected },

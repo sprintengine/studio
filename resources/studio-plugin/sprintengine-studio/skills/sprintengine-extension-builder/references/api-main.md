@@ -7,9 +7,14 @@ when the idea needs Node, a service only main has, or work with no window
 open — a renderer-only module is simpler, installs without a restart, and
 asks for less trust.
 
-Bundle it as one CommonJS file with `electron` external and everything else
-bundled: the installed module has no `node_modules`. A new or rebuilt main
-entry loads only after a Studio restart.
+Bundle it as one CommonJS entry file with `electron` external and everything
+else bundled: the installed module has no `node_modules`. The entry is one
+file, but it may start worker threads from other files the module ships —
+build each worker as its own CommonJS bundle into `module/dist/` and start it
+with `new Worker(host.getAssetPath('dist/worker.cjs'))`. Every file is in
+`files` and signed with the rest, and `getAssetPath` resolves only a file whose
+bytes still match. A new or rebuilt main entry loads only after a Studio
+restart.
 
 ## The host
 
@@ -19,7 +24,11 @@ entry loads only after a Studio restart.
 | `registerIpc(channel, handler)` | A channel the renderer calls with `host.invoke`. Must start with `<moduleId>:`; the module must declare `ipc:invoke`. Handler: `(event, payload) => result`; `event` is opaque. Validate `payload` — it is input. |
 | `emit(topic, payload?)` | Push a signal to your renderer's `host.subscribe(topic, cb)` in every window. No replay. |
 | `registerMcpTools(tools)` | Tools on the Studio MCP gateway every agent is connected to. Needs `mcp:tools`. |
-| `registerSkills(skills)` / `ensureSkillInstalled(root, id)` | Ship skills (folders with SKILL.md) inside the module and put them in a workspace. |
+| `registerSkills(skills)` / `ensureSkillInstalled(root, id)` / `getSkillStatus(root, id)` | Ship skills (folders with SKILL.md) inside the module, put them in a workspace, or check without writing (below). |
+| `getModuleAppState(key)` / `watchModuleAppState(cb)` | Your Settings section's values (your module app state), read-only, with no window open. `storage`. |
+| `getWorkspaceGitInfo(workspaceId)` | `{ ok, branch, remotes: [{ name, url, github? }] }`, read by git from the workspace's folder. Checked: `ipc:workspace-read`. |
+| `getModuleDataDir()` | A private directory under user data for data past the 1 MB value limit; removed at uninstall. `storage`. |
+| `getAssetPath(relative)` | Absolute path of a file your module ships (a worker, WASM, a data table); verified files only. |
 | `notify({ severity, title, body?, target? })` | A row in the bell of every open window, under the module's display name. `target: { surfaceId, viewId? }` (one of your own doors) gives the row an Open that lands there and counts it on that door's drawer row. Dropped: an identical repeat within 10 s, or more than 20 rows in 10 s — fold a burst into one row. Rows sent before a window opens are kept (last 50). Add actions from the renderer with `registerNotificationActionProvider({ source: host.moduleId })`. `supports('notifications')` is false where no window can show it. |
 | `onStartup(hook)` / `onShutdownBegin(hook)` / `onShutdown(hook)` | Start watchers on startup; stop loops at shutdown begin; release everything at shutdown. |
 | `requireService(token)` / `getService(token)` | Host services by token (below). `requireService` throws when absent. |
@@ -41,18 +50,32 @@ handler that needs it.
 | `getGitHubService(host)` | `github` | — | GitHub API calls with the user's sign-in — [brokers.md](brokers.md) |
 | `getScheduledAgentsService(host)` | `scheduled-agents.manage` | `scheduled-agents` | Create/list/update/remove/run the module's own scheduled agents, and hear when they change |
 | `getCompanionAgentsService(host)` | `agents:companion` | `agent-runtime` | A workspace-bound background agent with a structured `runStructured` task API |
-| `host.requireService(WorkspaceContextToken)` | `ipc:workspace-read` | — (resolve in handlers) | `get(id)` / `list()` of open workspaces: `{ id, name, folderPath, mode }` |
+| `host.requireService(WorkspaceContextToken)` | `ipc:workspace-read` | — (resolve in handlers) | `get(id)`, and `list()` of open workspaces `{ id, name, folderPath, mode, open }`; `list({ includeClosed: true })` adds the ones closed on this machine (`open: false`, `closedAt`) |
 | `host.requireService(WorkspaceServiceToken)` | `ipc:workspace-write` | — (resolve in handlers) | `create({ name, folderPath })` a workspace |
 | `getBacklogService(host)` | `backlog.read` / `backlog.write` | `agent-runtime` | List, locate, create and change Backlog items through the app — below |
 | `getUsageService(host)` | `usage:read` | `agent-runtime` | Token usage of every agent session on the machine — below |
 | `getActivityService(host)` | `conversation:read-all` | `agent-runtime` | The person's Studio chats and prompts, read-only — below |
+
+## Settings in `entry.main`
+
+What your Settings section writes (`setValue`) and what the renderer writes
+with `setModuleAppState` is one namespace, and `entry.main` reads it with
+`host.getModuleAppState(key)` — the value the person chose, persisted, with no
+window open. `host.watchModuleAppState(cb)` hears it change. Read-only from
+main; no second store and no IPC sync step.
+
+```ts
+const every = host.getModuleAppState<number>('pollMinutes') ?? 15
+const stop = host.watchModuleAppState((values) => reschedule(Number(values.pollMinutes ?? 15)))
+host.onShutdown(stop)
+```
 
 ## MCP tools
 
 ```ts
 host.registerMcpTools([
   {
-    name: `${host.moduleId.replace(/-/g, '_')}_word_count`,
+    name: 'wordcount.count',
     description: 'Count the words in a piece of text.',
     inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
     mutates: false,
@@ -61,7 +84,21 @@ host.registerMcpTools([
 ])
 ```
 
-- Names are a public contract: prefix with the module id, keep them stable.
+- Names are a public contract: keep them stable, in a family of your own
+  named for the module (`decisions.record`, `decisions_list`). The gateway
+  serves names verbatim; clients without dots write `a_b` for `a.b`, so names
+  are compared in that form. A name that matches a core tool
+  (`backlog_list` vs `backlog.list`), falls in a shell family (`browser`,
+  `canvas`, `editor`, `tour`, `terminal`) or matches another module's tool is a
+  registration error naming the conflict. Keep out of the core families too
+  (`agent`, `backlog`, `cli`, `conversation`, `local_server`, `marketplace`,
+  `module`, `pull_request`, `schedule`, `tailnet`, `workspace`, `worktree`,
+  `studio`, `sprintengine`, `app`): new core tools land there.
+- `context.metadata` says who is calling. `verified: true` means a launch token
+  or the tailnet proved it; a chat Studio launched is always `studio-agent`,
+  verified, with `workspaceId` and `agentId`, and `agentName` / `cliId` when
+  the launch recorded them. Anything else declared its identity: never label
+  that as verified authorship.
 - A third-party tool counts as changing state unless it declares
   `mutates: false`. Declare it on every read-only tool.
 - `args` comes from an agent: validate every field; return `isError: true`
@@ -108,9 +145,44 @@ prompt; ask for it only when reading the person's chats is the module's point.
 const storage = getModuleStorage(host)
 const saved = await storage.get({ key: 'state', workspaceRoot })   // { ok, value, found } | { ok: false, code, message }
 await storage.set({ key: 'state', value: { count: 1 }, workspaceRoot })
+const { keys } = await storage.list({ workspaceRoot, prefix: 'decision.' })  // one record family
+const many = await storage.getMany({ keys, workspaceRoot })        // { ok, values } — unset keys are absent
+const stop = storage.watch({ workspaceRoot }, ({ keys }) => refresh(keys))  // own writes at once; a git pull within ~2 s
 ```
 
 Keys match `^[a-z0-9][a-z0-9._-]{0,63}$`. Omit `workspaceRoot` for the
 module's global store. The host decides where files go (the workspace's
 `.sprintengine/modules/<id>/`, or app data); never write your own files in
-the home folder or the workspace for module state.
+the home folder or the workspace for module state. Workspace keys are plain
+files in the project: whether `.sprintengine/modules/<id>/` is committed is the
+project's call — say in your README which your data wants.
+
+Past the 1 MB value limit (caches, indexes, blobs), use
+`host.getModuleDataDir()`: a directory of your own under the app's user data,
+created on demand and removed when the module is uninstalled. Lay it out
+however you like; it is per machine and never synced.
+
+## Skills
+
+Ship skill folders inside the module — `module/skills/<id>/SKILL.md` (plus any
+`agents/` sidecars) — and register them with `sourceDir: 'skills/<id>'`,
+relative to the module root (the `module/` folder). Editing a skill file is a
+change under `module/` like any other: rebuild, re-sign, re-trust.
+
+A registered skill reaches a chat in two ways, and only these:
+
+- **A launch that names it** — `create({ skills: ['<id>'] })`, a scheduled
+  agent's `skills`, an `openChat` that attaches it: the host installs it into
+  that chat's folder first.
+- **A copy already in the workspace** — `ensureSkillInstalled(root, id)` writes
+  it (`'all-native'`: into `.agents/skills` and every installed CLI's own skill
+  directory; `'agents'`: `.agents/skills` only). Those copies stay, so every new
+  chat in that workspace finds it, including ones the person starts.
+
+Registering alone writes nothing to any workspace: an `all-native` skill does
+not reach new chats on its own until one of the above has run there.
+`getSkillStatus(root, id)` answers the same question as `ensureSkillInstalled`
+without writing, for a door that shows "installed in this project". Both answer
+with `ModuleSkillStatus` (`installed`, `updated`, `missing`, `update-available`,
+`local`, `modified`, `delivered-at-launch`, `missing-source`,
+`missing-workspace`, `unknown-skill`, `install-failed`).

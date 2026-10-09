@@ -70,6 +70,7 @@ conversation service: [conversation-api.md](conversation-api.md).
 | --- | --- | --- |
 | `getWorkspace(id)` | `ipc:workspace-read` | `{ id, name, folderPath, mode }` or `null` ("not resolvable yet" — retry, never treat as deleted). |
 | `listWorkspaces()` / `watchWorkspaces(cb)` | `ipc:workspace-read` | `watch` fires at once with the current list, then on change. |
+| `getWorkspaceGitInfo(workspaceId)` | `ipc:workspace-read` (checked) | `{ ok, branch, remotes: [{ name, url, github? }] }` from git in the workspace's working root; SSH aliases for github.com resolved. Never throws. |
 | `getWorkingRoot(id)` | `ipc:workspace-read` | Where live work happens (a worktree, for worktree-backed workspaces). |
 | `watchWorkspaceFile(id, relativePath, cb)` | `filesystem:read-workspace` | Content now, then debounced on change; resolves to the unsubscriber. |
 | `listBacklogItems(id)` / `watchBacklogItems(id, cb, { onError })` | `backlog.read` | Item views (with `numericId`, `displayId`, `epic`, `modifiedAt`). `onError` hears a folderless workspace or an unreadable Backlog; the watch stays open. |
@@ -81,7 +82,7 @@ conversation service: [conversation-api.md](conversation-api.md).
 
 | Method | Permission | Use for |
 | --- | --- | --- |
-| `getModuleAppState(key)` / `setModuleAppState(key, value)` / `watchModuleAppState(cb)` | `storage` | The module's own small settings-like values; synchronous, safe to read in render; pair with `useSyncExternalStore`. `set` returns `false` when not stored. |
+| `getModuleAppState(key)` / `setModuleAppState(key, value)` / `watchModuleAppState(cb)` | `storage` | The module's own small settings-like values; synchronous, safe to read in render; pair with `useSyncExternalStore`. `set` returns `false` when not stored. `entry.main` reads the same values with `MainHost.getModuleAppState` (read-only). |
 | `getWorkspaceModuleState(id)` / `setWorkspaceModuleState(id, value)` | `storage` | The module's entry on one workspace, saved and synced with it. `undefined` = unknown yet. |
 | `watchColorScheme(cb)` | — | `'light' \| 'dark'` for a runtime you host (Monaco, a chart); ordinary UI uses theme tokens. |
 

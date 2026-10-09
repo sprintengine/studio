@@ -14,11 +14,13 @@ import {
   ConversationRuntimeToken,
   GitHubModuleServiceToken,
   GitHubTokenStoreToken,
+  ModuleAppStateToken,
   ModuleSecretsServiceToken,
   ModuleStorageToken,
   SprintEngineAuthToken,
   TerminalRuntimeToken,
   WorkspaceContextToken,
+  WorkspaceGitInfoToken,
   WorkspaceRegistryToken,
   WorkspaceServiceToken,
   WorkspaceSyncServiceToken,
@@ -29,10 +31,15 @@ import { ConversationSessionApi } from '../conversation-session-api'
 import { createModuleGitHubRegistry } from '../module-host/module-github'
 import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
+import { moduleAppStateMirrorFor } from '../module-host/module-app-state-mirror'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 import { provideHostDataServices } from './host-data-services'
+import { CLOSED_WORKSPACE_HISTORY_FILE, createClosedWorkspaceHistory } from './closed-workspace-history'
+import { readFolderGitInfo } from '../workspace-git-info'
+import { toModuleWorkspaceView, type ModuleWorkspaceView } from '../../shared/modules/workspace-view'
+import { join } from 'node:path'
 
 // Resolves a module id to the capability permissions it declared in its
 // manifest (disclosure list). The companion registry uses it to gate `attach`
@@ -112,15 +119,49 @@ export function createAgentRuntimeModule(
         createModuleWorkspaceService({ workspaceSync: services.workspaceSyncService }),
       )
       // Read-only workspace context (id → root/name/mode), read from the same
-      // registry the create flow writes.
+      // registry the create flow writes. Closing a workspace deletes its
+      // record, so the history of closed ones is kept beside it, fed by every
+      // registry change, for `list({ includeClosed: true })`.
+      const workspaceViews = (): ModuleWorkspaceView[] =>
+        services.workspaceSyncService
+          .getSnapshot()
+          .state.workspaces.map((workspace) => toModuleWorkspaceView(workspace))
+          .filter((view): view is ModuleWorkspaceView => view !== null)
+      const closedWorkspaces = createClosedWorkspaceHistory({
+        filePath: join(paths.dataDir(), CLOSED_WORKSPACE_HISTORY_FILE),
+      })
+      closedWorkspaces.observe(workspaceViews())
+      const stopObservingWorkspaces = services.workspaceSyncService.subscribeEvents(() =>
+        closedWorkspaces.observe(workspaceViews()),
+      )
+      host.onShutdown(() => stopObservingWorkspaces())
       host.provideService(WorkspaceContextToken, () =>
         createModuleWorkspaceContextService({
           getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
+          listClosedWorkspaces: () => closedWorkspaces.list(),
         }),
       )
+      // A workspace's branch and remotes, for the module host's
+      // getWorkspaceGitInfo: git asked from the workspace's own folder (the
+      // worktree, for a worktree-backed one).
+      host.provideService(WorkspaceGitInfoToken, () => ({
+        read: async (workspaceId: string) => {
+          const workspace = services.workspaceSyncService
+            .getSnapshot()
+            .state.workspaces.find((entry) => entry.id === workspaceId)
+          if (!workspace) {
+            return { ok: false, code: 'unknown_workspace', message: `No open workspace "${workspaceId}".` } as const
+          }
+          return readFolderGitInfo(workspace.folderPath ?? null)
+        },
+      }))
       // Per-module, per-workspace JSON storage (SDK getModuleStorage): the
       // host owns file placement so modules stop inventing locations.
       host.provideService(ModuleStorageToken, () => createModuleStorageRegistry({ userDataDir: () => paths.dataDir() }))
+      // Every module's app-level state (its Settings section's values), as the
+      // windows last pushed it: what `MainHost.getModuleAppState` reads, so
+      // `entry.main` sees the person's settings with no window open.
+      host.provideService(ModuleAppStateToken, () => moduleAppStateMirrorFor(paths.dataDir()))
       // Companion agents: workspace-bound background agents driven through the
       // shared conversation runtime. The core service is app-internal
       // (first-party consumers require it directly); the moduleId-scoped

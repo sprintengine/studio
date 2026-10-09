@@ -18,9 +18,9 @@ Rules:
 
 | Permission | The prompt says | Declare it when you use | Checked at the call |
 | --- | --- | --- | --- |
-| `storage` | Save its own data in the workspace folder and app data | `getModuleStorage`, module app state, workspace module state | — |
+| `storage` | Save its own data in the workspace folder and app data | `getModuleStorage`, module app state (also `MainHost.getModuleAppState`), workspace module state, `getModuleDataDir` | — |
 | `ipc:invoke` | Call any of the app's internal APIs, including its own background code (broad scope) | `host.invoke` from the renderer to your own `registerIpc` channels | yes (bridge) |
-| `ipc:workspace-read` | See workspace, window, git, and task state through the app's APIs | `getWorkspace`, `listWorkspaces`, `watchWorkspaces`, `getWorkingRoot`, `WorkspaceContextToken` | — |
+| `ipc:workspace-read` | See workspace, window, git, and task state through the app's APIs | `getWorkspace`, `listWorkspaces`, `watchWorkspaces`, `getWorkingRoot`, `WorkspaceContextToken`, `getWorkspaceGitInfo` | `getWorkspaceGitInfo` |
 | `ipc:workspace-write` | Create and change workspaces, files, and tasks through the app's APIs | `WorkspaceServiceToken.create` | — |
 | `ipc:settings` | Read and change app settings and integrations | — (legacy scope) | — |
 | `filesystem:read-workspace` | Read files in the open workspace | `watchWorkspaceFile`; Node reads under a workspace root in `entry.main` | — |
@@ -36,7 +36,7 @@ Rules:
 | `conversation:read` | Read the chats it started, including everything the agent says in them | `subscribe`, `transcript`, `list`, `watch` | yes |
 | `conversation:operate` | Start chats with agents, send them messages, and stop them | `openChat`, and every conversation-service call (implies read) | yes |
 | `secrets` | Store API keys and send them to the sites it names (the key is never shown back to the extension) | `getSecretsService` | yes |
-| `github` | Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension) | `getGitHubService` | yes |
+| `github` | Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension) | `getGitHubService` (`request`, `graphql`, `download`) | yes |
 | `mcp:tools` | Add tools that agents in your workspaces can call | `registerMcpTools` | yes |
 | `usage:read` | See token usage and cost of every agent session on this machine | `getUsageService`, `queryUsage` | yes |
 | `conversation:read-all` | Read every chat on this machine, including what you and the agents wrote (broad scope) | `getActivityService` | yes |

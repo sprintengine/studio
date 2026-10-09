@@ -9,7 +9,7 @@ import { collapseDuplicateKeybindings } from '../commands/keybindings'
 import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from '../commands/types'
 import type { AppNotification, LayoutTemplate, Workspace } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
-import type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
+import type { ModuleWorkspaceGitInfoResult, ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 import { AGENT_RUNTIME_MODULE_ID } from '../../../shared/backlog/agent-links'
 import type { WorkspaceFileWatcher, WorkspaceFileWatchEvent } from './workspace-file-watch'
 import type { ColorSchemeWatcher, ModuleColorScheme } from './color-scheme-watch'
@@ -981,6 +981,16 @@ export type RendererHost = {
    */
   listWorkspaces(): Promise<ModuleWorkspaceView[]>
   /**
+   * A workspace's checked-out branch (null when detached) and its remotes,
+   * each with `owner/repo` when it is a GitHub repository — SSH host aliases
+   * from ~/.ssh/config resolved. Read by git from the workspace's working
+   * root, so a worktree reports its own branch and a submodule its own
+   * remotes. The `entry.main` twin is `MainHost.getWorkspaceGitInfo`.
+   * Requires `ipc:workspace-read` (checked: `permission_missing` without it).
+   * Never throws.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
+  /**
    * Observe the open workspaces: `cb` fires once with the current list, then
    * on every change (deduped by value, so an unrelated store write does not
    * wake it). Returns the unsubscriber — call it on unmount. Before the shell
@@ -1327,6 +1337,12 @@ export type RendererKernel = {
    */
   setChatRuntimeSource(source: () => ModuleChatRuntimeOption[]): void
   /**
+   * Source for `RendererHost.getWorkspaceGitInfo`. Wired once at boot by
+   * modules/index.ts (store working root + the shell's git read over IPC);
+   * absent (early boot, tests) every read answers `unavailable`.
+   */
+  setWorkspaceGitInfoSource(source: (workspaceId: string) => Promise<ModuleWorkspaceGitInfoResult>): void
+  /**
    * This window files module notifications into its bell (modules/index.ts
    * wires the push channel). What `RendererHost.supports('notifications')`
    * answers.
@@ -1467,6 +1483,7 @@ export function createRendererHost(): RendererKernel {
   let workspaceFileWatcher: WorkspaceFileWatcher | null = null
   let tabFocuser: ModuleTabFocuser | null = null
   let chatRuntimeSource: (() => ModuleChatRuntimeOption[]) | null = null
+  let workspaceGitInfoSource: ((workspaceId: string) => Promise<ModuleWorkspaceGitInfoResult>) | null = null
   let workspaceListSource: WorkspaceListSource | null = null
   let colorSchemeWatcher: ColorSchemeWatcher | null = null
   let moduleNotificationsWired = false
@@ -1932,6 +1949,23 @@ export function createRendererHost(): RendererKernel {
         async listWorkspaces() {
           return workspaceListSource ? workspaceListSource.list() : []
         },
+        async getWorkspaceGitInfo(workspaceId) {
+          if (!manifest?.permissions?.includes('ipc:workspace-read')) {
+            return {
+              ok: false,
+              code: 'permission_missing',
+              message: `Module "${moduleId}" must declare the "ipc:workspace-read" permission to read a workspace's git information.`,
+            }
+          }
+          if (!workspaceGitInfoSource) {
+            return { ok: false, code: 'unavailable', message: 'Workspace git information is not available yet.' }
+          }
+          try {
+            return await workspaceGitInfoSource(workspaceId)
+          } catch {
+            return { ok: false, code: 'git_failed', message: "The workspace's git information could not be read." }
+          }
+        },
         watchWorkspaces(cb) {
           // Unwired (early boot, windowless bundles) still honours the
           // fires-once contract: a module renders its empty state rather than
@@ -2299,6 +2333,9 @@ export function createRendererHost(): RendererKernel {
     },
     setChatRuntimeSource(source) {
       chatRuntimeSource = source
+    },
+    setWorkspaceGitInfoSource(source) {
+      workspaceGitInfoSource = source
     },
     setWorkspaceListSource(source) {
       workspaceListSource = source

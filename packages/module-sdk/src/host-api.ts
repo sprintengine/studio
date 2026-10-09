@@ -85,6 +85,32 @@ export type HostCapability =
   // declares `requires.hostCapabilities: ['electron-main']` and runs only where
   // this is true.
   | 'electron-main'
+  // ── Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP ──
+  // `MainHost.getSkillStatus`: is a skill present, without writing it.
+  | 'skill-status'
+  // `McpConnectionMetadata.verified` on every module tool call, and core tool
+  // name collisions refused at `registerMcpTools`.
+  | 'mcp-verified-identity'
+  // GitHub broker: allow-listed response `headers`, `ifNoneMatch` and `accept`.
+  | 'github-headers'
+  // GitHub broker: read-only `graphql(query, variables)`.
+  | 'github-graphql'
+  // GitHub broker: `download(route)` following GitHub's own storage redirect.
+  | 'github-download'
+  // Module storage: `list({ prefix })` and `getMany(keys)`.
+  | 'storage-query'
+  // Module storage: `watch({ workspaceRoot? }, cb)`.
+  | 'storage-watch'
+  // `MainHost.getModuleDataDir()`: a private directory for data past the value limit.
+  | 'module-data-dir'
+  // `MainHost.getAssetPath(relative)`: a verified file's path, for workers and the like.
+  | 'main-asset-path'
+  // `getWorkspaceGitInfo(workspaceId)` on both hosts.
+  | 'workspace-git-info'
+  // `WorkspaceContextService.list({ includeClosed })` and `open` on each entry.
+  | 'workspace-history'
+  // `MainHost.getModuleAppState` / `watchModuleAppState`: Settings values in entry.main.
+  | 'main-app-state'
   | (string & {})
 
 export type HostApiCompatibility =

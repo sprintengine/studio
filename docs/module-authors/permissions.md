@@ -33,12 +33,12 @@ known scopes.
 | `backlog.link.open` | Open links and targets attached to Backlog items | Opening a link provider's target |
 | `scheduled-agents.manage` | Schedule agents of its own that start a chat on a timer | Creating, changing and running its own scheduled agents |
 | `agents:companion` | Run its own background agents inside the workspace | The companion-agents service |
-| `storage` | Save its own data in the workspace folder and app data | The module storage bags |
+| `storage` | Save its own data in the workspace folder and app data | The module storage bags, module app state (read from main with `MainHost.getModuleAppState`), and the module's private data directory (`MainHost.getModuleDataDir`) |
 | `conversation:read` | Read the chats it started, including everything the agent says in them | `getConversationService`: `subscribe`, `follow`, `transcript`, `list`, `watch` |
 | `conversation:operate` | Start chats with agents, send them messages, and stop them | The whole conversation service, and `RendererHost.openChat`. Implies `conversation:read` |
 | `conversation:bypass` | Let the agents in its chats edit files and run commands without asking you first | Running the module's chats on `bypass`, and starting them with `allowedTools`. Without it they run no looser than `auto` |
 | `secrets` | Store API keys and send them to the sites it names (the key is never shown back to the extension) | `getSecretsService` |
-| `github` | Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension) | `getGitHubService` |
+| `github` | Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension) | `getGitHubService`: REST requests, read-only GraphQL queries, and downloads that follow GitHub's own storage redirect |
 | `mcp:tools` | Add tools that agents in your workspaces can call | `MainHost.registerMcpTools` |
 | `usage:read` | See token usage and cost of every agent session on this machine | `getUsageService`, `RendererHost.queryUsage`: token counts of Studio chats and of the Claude Code and Codex sessions on the machine |
 | `conversation:read-all` | Read every chat on this machine, including what you and the agents wrote (broad scope) | `getActivityService`: summaries of the person's Studio chats and the messages they sent, with the end of each reply |
@@ -108,6 +108,8 @@ behind `conversation:read` / `conversation:operate`.
   - `conversation:read-all` is checked on every call to the activity service.
     It is the one scope that reaches the person's own chats, read-only, and
     the consent prompt flags it as broad, as it does `ipc:invoke`.
+  - `ipc:workspace-read` is checked on `getWorkspaceGitInfo` (both hosts); the
+    rest of what it discloses stays disclosure-only.
 - A module reaches agents only as chats. There is no scope for launching or
   driving an agent terminal, because no module API does it.
 - Declaring less than you use is a trust violation users can hold against your

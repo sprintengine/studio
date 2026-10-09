@@ -333,6 +333,19 @@ if (typeof window !== 'undefined') {
           return workspace ? workspaceWorktree.workspaceWorkingRoot(workspace) : null
         }
         rendererHost.setWorkingRootResolver(resolveWorkingRoot)
+        // A workspace's branch and remotes: git asked, over the shell's git
+        // IPC, from the same working root every live-runtime surface uses.
+        rendererHost.setWorkspaceGitInfoSource(async (workspaceId) => {
+          const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
+          if (!workspace)
+            return { ok: false, code: 'unknown_workspace', message: `No open workspace "${workspaceId}".` }
+          const root = workspaceWorktree.workspaceWorkingRoot(workspace)
+          if (!root) return { ok: false, code: 'no_folder', message: 'The workspace has no folder.' }
+          if (typeof window.api?.getModuleWorkspaceGitInfo !== 'function') {
+            return { ok: false, code: 'unavailable', message: 'Workspace git information is not available here.' }
+          }
+          return window.api.getModuleWorkspaceGitInfo(root)
+        })
         // File-watch backend over the shell's fs watch plumbing (the same
         // window.api surface runStateSynchronizer rides).
         rendererHost.setWorkspaceFileWatcher(

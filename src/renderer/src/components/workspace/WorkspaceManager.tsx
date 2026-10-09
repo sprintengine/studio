@@ -91,6 +91,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import { initTextGenerationSettingsSync } from '../../utils/textGenerationSettingsSync'
+import { initModuleAppStateSync } from '../../utils/moduleAppStateSync'
 import {
   addNewAgentTab,
   addTerminalTab,
@@ -461,6 +462,10 @@ export default function WorkspaceManager() {
   // to ask when one starts (a phone's New chat), so the titles setting is
   // mirrored the same way.
   useEffect(() => initTextGenerationSettingsSync(), [])
+  // A module's entry.main reads its Settings section's values with no window
+  // open (a scheduler's time, a poller's interval), so module app state is
+  // mirrored the same way.
+  useEffect(() => initModuleAppStateSync(), [])
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)

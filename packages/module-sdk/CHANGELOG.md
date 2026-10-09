@@ -124,6 +124,57 @@ for the tokens.
 
 <!-- End of shell surfaces, notifications and the renderer host. -->
 
+<!-- Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP. -->
+
+### Added
+
+- **Settings in `entry.main`.** `MainHost.getModuleAppState(key)` and
+  `watchModuleAppState(cb)` read the module's app-level state — what its
+  Settings section writes — from a persisted copy main keeps, so a scheduler or
+  poller sees the person's choices with no window open. Read-only.
+  `supports('main-app-state')`.
+- **Workspaces.** `WorkspaceContextService.list({ includeClosed: true })` adds
+  the workspaces closed on this machine (`ModuleWorkspaceListEntry`, with
+  `open` and `closedAt`); `supports('workspace-history')`.
+  `getWorkspaceGitInfo(workspaceId)` on `MainHost` and `RendererHost` answers
+  the branch and remotes, each with `owner/repo` for GitHub, SSH host aliases
+  resolved; checked against `ipc:workspace-read`. `supports('workspace-git-info')`.
+- **Storage.** `list({ prefix })`, `getMany({ keys })`
+  (`supports('storage-query')`) and `watch({ workspaceRoot? }, cb)` with
+  `ModuleStorageChange` (`supports('storage-watch')`).
+  `MainHost.getModuleDataDir()`: a per-module directory under user data for
+  data past the 1 MB value limit, removed at uninstall
+  (`supports('module-data-dir')`). `MainHost.getAssetPath(relative)`: the
+  main-side twin of `getAssetUrl`, verified files only — worker threads loaded
+  from module files are supported (`supports('main-asset-path')`).
+- **GitHub broker.** Allow-listed response `headers`, `ifNoneMatch` (a 304 is
+  an answer) and `accept` (`ModuleGitHubMediaType`) — `supports('github-headers')`;
+  read-only `graphql(query, variables)` — `supports('github-graphql')`;
+  `download(request)` following GitHub's storage redirect with the token
+  stripped — `supports('github-download')`. New error codes `invalid_query`
+  and `redirect_not_allowed` (`ModuleGitHubErrorCode`).
+- **Skills.** `MainHost.getSkillStatus(workspaceRoot, skillId)` checks without
+  writing; `ModuleSkillStatus` is the exhaustive status vocabulary, including
+  `delivered-at-launch`, `missing` and `update-available`.
+  `supports('skill-status')`.
+- **MCP.** `McpConnectionMetadata.verified`: true when a launch token or the
+  tailnet transport proved the caller; always set on a module tool's context
+  by a host that `supports('mcp-verified-identity')`.
+
+### Changed
+
+- A module MCP tool whose name collides with a core gateway tool (compared as
+  clients file it: `a.b` and `a_b` are one name) or falls in a shell tool
+  family is now a registration error naming the conflict; it used to be
+  skipped with a log warning. Module-vs-module collisions use the same
+  comparison.
+- `EnsureSkillInstalledResult.status` is typed `ModuleSkillStatus` instead of
+  `string`.
+- `ModuleGitHubResponse`'s ok branch carries `headers`, and an `http_error`
+  may.
+- `WorkspaceContextService.list()` answers `ModuleWorkspaceListEntry[]`
+  (each view plus `open`).
+
 ## 1.0.0-beta.1
 
 Automations became scheduled agents: a prompt and a cron schedule, each run a

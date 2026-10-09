@@ -186,6 +186,8 @@ const moduleLoad = loadMainModules({
   // Skill directories a third-party module registers are resolved against —
   // and must stay inside — its install folder.
   moduleRoots: thirdPartyMainLoad.moduleRoots,
+  // What `getAssetPath` resolves: the files each module was verified with.
+  moduleVerifiedFiles: thirdPartyMainLoad.verifiedFiles,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
   // Module events fan out to every open window on the one host-owned channel;
@@ -196,6 +198,9 @@ const moduleLoad = loadMainModules({
   // the kernel keeps the recent ones for a window that opens later.
   deliverModuleNotification: (notification) =>
     studioPlatform().clients.publish(MODULE_NOTIFICATIONS_CHANNEL, notification),
+  // A module tool that would shadow one of the gateway's own is refused at
+  // registration, naming the tool it collides with.
+  coreMcpToolNames: () => services.automationService?.coreToolNames() ?? [],
 })
 // The manifest universe the enablement gate resolves against — every main module
 // present on this channel, so a module and its dependencies (scheduled agents,

@@ -181,8 +181,11 @@ host.registerSkills([
 ])
 ```
 
-`sourceDir` must stay inside the module root — the host resolves it and
-rejects anything that escapes. An `id` a built-in skill or another module
+`sourceDir` must stay inside the module root (the `module/` folder of a
+project: ship the skill as `module/skills/<id>/SKILL.md` and register
+`sourceDir: 'skills/<id>'`) — the host resolves it and rejects anything that
+escapes. The skill's files are module files: they are in `files`, covered by
+the signature, and editing one means rebuilding and re-trusting. An `id` a built-in skill or another module
 already owns is a registration error, and unloading the module unregisters its
 skills.
 
@@ -197,7 +200,17 @@ To put one in a workspace ahead of time — a skill an agent will be told to
 invoke, or one the user should see listed — call
 `host.ensureSkillInstalled(workspaceRoot, skillId)`. It never throws and
 answers `{ ok, status, message? }`; `status: 'unknown-skill'` means nothing
-answers to that id.
+answers to that id. `host.getSkillStatus(workspaceRoot, skillId)` asks the same
+question without writing anything. `status` is a `ModuleSkillStatus`:
+`installed`, `updated`, `missing`, `update-available`, `local`, `modified`,
+`delivered-at-launch` (a built-in skill the launch hands its CLI as a plugin,
+so nothing is written), `missing-source`, `missing-workspace`, `unknown-skill`
+or `install-failed`.
+
+Registering a skill writes nothing to any workspace. An `all-native` skill
+reaches a chat when that chat's launch names it, or when
+`ensureSkillInstalled` has already put it in the workspace — after which every
+new chat there finds it in its CLI's own skill directory, the person's included.
 
 ### Publishing a module to the marketplace
 

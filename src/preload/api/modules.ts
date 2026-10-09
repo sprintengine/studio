@@ -27,6 +27,7 @@ import { MODULE_REGISTRY_SNAPSHOT_CHANNEL } from '../../shared/modules/registry-
 
 type ModulesIpcRenderer = {
   invoke(channel: 'modules:set-enablement', overrides: ModuleEnablementOverrides): Promise<ModuleEnablementWriteResult>
+  invoke(channel: 'modules:set-app-state', bag: Record<string, Record<string, unknown>>): Promise<void>
   invoke(
     channel: typeof MODULE_REGISTRY_SNAPSHOT_CHANNEL,
     snapshot: ModuleRegistrySnapshot,
@@ -70,6 +71,8 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
   return {
     setModuleEnablement: (overrides: ModuleEnablementOverrides): Promise<ModuleEnablementWriteResult> =>
       renderer.invoke('modules:set-enablement', overrides),
+    setModuleAppState: (bag: Record<string, Record<string, unknown>>): Promise<void> =>
+      renderer.invoke('modules:set-app-state', bag),
     setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot): Promise<ModuleRegistrySnapshotWriteResult> =>
       renderer.invoke(MODULE_REGISTRY_SNAPSHOT_CHANNEL, snapshot),
     listThirdPartyModules: (): Promise<ThirdPartyModuleListResult> => renderer.invoke('modules:third-party:list'),
@@ -111,6 +114,7 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
   } satisfies Pick<
     ElectronApi,
     | 'setModuleEnablement'
+    | 'setModuleAppState'
     | 'setModuleRegistrySnapshot'
     | 'listThirdPartyModules'
     | 'installThirdPartyModuleFolder'

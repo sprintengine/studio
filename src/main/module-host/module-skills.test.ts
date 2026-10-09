@@ -63,6 +63,11 @@ test('module-skills', async () => {
           ? { ok: true, status: 'installed' }
           : { ok: false, status: 'unknown-skill', message: `Unknown skill: ${skillId}` }
       },
+      async getStatus(_workspaceRoot, skillId) {
+        return owners.has(skillId)
+          ? { ok: false, status: 'missing' }
+          : { ok: false, status: 'unknown-skill', message: `Unknown skill: ${skillId}` }
+      },
     }
     return { registry, registered, unregistered, ensured, owners }
   }
