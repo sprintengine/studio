@@ -140,6 +140,17 @@ test('the pause covers the parts of a visible window nobody can see', () => {
   }
 })
 
+test('the motion clock watches every attribute the pause keys on', async () => {
+  // The clock rests while every loop is held by this rule, and hears a loop let
+  // go only through these attributes; the window's own is heard from its activity.
+  const { STYLESHEET_PAUSE_ATTRIBUTES } = await import('../utils/motionClock')
+  const keyed = new Set(
+    (splitSelectorList(pauseSelector())[0]!.match(/\[[\w-]+/g) ?? []).map((attribute) => attribute.slice(1)),
+  )
+  keyed.delete('data-window-active')
+  assert.deepEqual([...keyed].sort(), [...STYLESHEET_PAUSE_ATTRIBUTES].sort())
+})
+
 test('a live counter skips its writes in every hidden region the pause holds still', async () => {
   // liveVisibility's selector is how LiveElapsed tells a region the
   // intersection observer cannot see; it has to name what the pause names.

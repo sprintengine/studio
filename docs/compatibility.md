@@ -258,7 +258,13 @@ does not send them. The files a message attached by path (`files` on a
 kind of member: the message's `text` is the person's words alone, an older
 phone shows those and nothing more, and a phone that reads the member can
 name the files (it cannot open them). The phone's commands do not send
-`files`, so nothing it sends changed. So is `origin` on a `user_message`
+`files`, so nothing it sends changed. The pictures a step returned
+(`images` on a `tool_output`, 2026-10-09: paths on the desktop that ran it, at
+most eight, a browser screenshot most often) are the same kind of member: the
+bytes were never on the wire and still are not, an older phone shows the
+step's words as before, and a reader that knows the member can say the step
+returned pictures but cannot fetch them, since `conversation-image` serves a
+step's picture by the step's input and not by this list. So is `origin` on a `user_message`
 payload (`ConversationMessageOrigin`, 2026-10-07), which marks a message the
 desktop sent a chat itself — a launched agent's notice, a resume after a usage limit —
 as Studio's: a reader that does not know it shows the message as the person's,

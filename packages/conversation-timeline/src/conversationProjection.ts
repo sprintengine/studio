@@ -60,6 +60,9 @@ export type TranscriptToolEntry = {
   outputStatus?: ConversationToolStatus
   exitCode?: number
   mime?: string
+  // The pictures the step returned (a screenshot), as files on the desktop
+  // that ran it: `images` on its `tool_output`. Absent when it returned none.
+  images?: string[]
   // One-line input summary from the provider (e.g. "Bash: npm test") —
   // the row reads as "what it did", not just the tool name.
   summary?: string
@@ -342,6 +345,19 @@ export function readString(payload: Record<string, unknown> | undefined, ...keys
   return undefined
 }
 
+/** The most pictures a step's `images` is read for, as the desktop keeps at most. */
+export const MAX_TOOL_IMAGES = 8
+
+/** A `tool_output`'s `images`: the paths that are text, at most eight; undefined when there are none. */
+export function readImagePaths(payload: Record<string, unknown> | undefined): string[] | undefined {
+  const value = payload?.images
+  if (!Array.isArray(value)) return undefined
+  const paths = value.filter(
+    (path): path is string => typeof path === 'string' && path.length > 0 && path.length <= 4096,
+  )
+  return paths.length ? paths.slice(0, MAX_TOOL_IMAGES) : undefined
+}
+
 export function readNumber(payload: Record<string, unknown> | undefined, key: string): number | undefined {
   const value = payload?.[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
@@ -534,6 +550,7 @@ export type ToolAccumulator = {
   outputStatus?: ConversationToolStatus
   exitCode?: number
   mime?: string
+  images?: string[]
   summary?: string
   startedAt?: number
   completedAt?: number
@@ -899,6 +916,7 @@ export function projectConversation(
           existing.outputStatus = readToolStatus(event.payload) ?? existing.outputStatus
           existing.exitCode = readNumber(event.payload, 'exitCode') ?? existing.exitCode
           existing.mime = readString(event.payload, 'mime') ?? existing.mime
+          existing.images = readImagePaths(event.payload) ?? existing.images
         }
         break
       }
@@ -1347,6 +1365,7 @@ export function nestSubagentLanes(turn: TurnAccumulator, index: LaneIndex): Tran
       outputStatus: tool.outputStatus,
       exitCode: tool.exitCode,
       mime: tool.mime,
+      ...(tool.images ? { images: tool.images } : {}),
       summary: tool.summary,
       startedAt: tool.startedAt,
       completedAt: tool.completedAt,

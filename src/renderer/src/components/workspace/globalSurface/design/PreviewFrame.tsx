@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import { motionClock } from '../../../../utils/motionClock'
 
 // One component preview, in its own sandboxed document.
 //
@@ -121,6 +122,33 @@ export function PreviewFrame({
     })
   }, [sizeToContent])
 
+  // A measured frame shares this document's origin, so its loops (a spinner
+  // specimen, a working mark) can run on the window's motion clock like the
+  // app's own: the stylesheet's idle pause cannot reach into a frame, and a
+  // looping specimen would otherwise draw at the display's refresh rate for as
+  // long as the sheet is open, focused or not. An empty-sandbox frame cannot be
+  // reached from here and keeps its own timing.
+  const releaseMotionRef = useRef<() => void>(() => undefined)
+  useEffect(() => {
+    if (sizeToContent) return () => releaseMotionRef.current()
+    releaseMotionRef.current()
+    releaseMotionRef.current = () => undefined
+    return undefined
+  }, [sizeToContent])
+  const handleLoad = useCallback(() => {
+    measure()
+    releaseMotionRef.current()
+    releaseMotionRef.current = () => undefined
+    if (!sizeToContent) return
+    let doc: Document | null = null
+    try {
+      doc = frameRef.current?.contentDocument ?? null
+    } catch {
+      doc = null
+    }
+    if (doc) releaseMotionRef.current = motionClock().addDocument(doc)
+  }, [measure, sizeToContent])
+
   // Late layout — a webfont arriving, an image decoding — changes the height
   // after `load`. Watching the frame's own body is how the correction lands
   // without polling; a frame that never resizes never calls back.
@@ -159,7 +187,7 @@ export function PreviewFrame({
           srcDoc={srcDoc}
           title={title}
           loading="lazy"
-          onLoad={measure}
+          onLoad={handleLoad}
           className="h-full w-full border-0 bg-transparent"
           // A preview is content the user reads, not a control they operate:
           // scrolling inside a specimen would swallow the page's own scroll.

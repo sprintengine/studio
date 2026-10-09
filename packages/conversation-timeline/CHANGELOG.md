@@ -12,6 +12,11 @@
   does not), and `describeBackgroundTasks` names them in one line ("Waiting on
   monitor CI checks", "Running: npm run dev").
 
+- A tool entry carries `images`, the pictures its step returned, read from
+  a `tool_output`'s `images` member (paths that are text, at most eight,
+  `MAX_TOOL_IMAGES`) by `readImagePaths`. The full and the incremental
+  projection read it alike; a step that returned none has no member.
+
 - The working row carries `latestThought`, the first sentence of the newest
   thinking or prose between the running turn's steps, and the `turnId` whose
   fold it sits under, so a view can say why the agent is doing what the line

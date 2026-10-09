@@ -11,6 +11,15 @@
   `session_updated` event carries them as `backgroundTasks`, the whole list
   each time it changes; an empty list says nothing runs any more.
 
+- **A step names the pictures it returned.** `images` is an optional member
+  of `ConversationToolOutputPayload`: the files a step's pictures (a browser
+  screenshot, say) were written to on the desktop that ran it, in the order
+  the tool returned them, at most eight. The bytes are not in `output` and
+  never cross the wire. Absent for a step that returned none, and on every
+  step a desktop from before this member reports. The paths name files on
+  that desktop, so a client on another device can say a step has pictures
+  but cannot open them. The pinned files are unchanged.
+
 - **A message may bring skills.** `CONVERSATION_SEND_SKILLS_CAPABILITY`
   (`conversation-send-skills`) names a desktop that takes `skills` on `send`:
   ids of its skills the chat runs with that message, at most
