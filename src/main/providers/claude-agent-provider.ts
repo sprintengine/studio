@@ -12,6 +12,7 @@
 // moves fast, so version churn must not leak past this adapter. The package
 // is ESM-only and the main bundle is CJS, so the SDK is loaded via dynamic
 // import on first use.
+import { saveToolResultImages, toolResultImages, type SaveToolResultImages } from './tool-result-images'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'node:crypto'
 import { cp, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
@@ -204,6 +205,8 @@ type SessionState = {
   providerId: string
   modelId: string
   workspaceRoot: string
+  // Pictures being written for the steps of the message being read (mapSdkMessage).
+  toolImageWrites?: Promise<void>[]
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset: ConversationPermissionPreset
   // Claude Code's own mode at that preset (Accept edits, Don't ask), when one
@@ -642,7 +645,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         }
         const forking = state.resumeAt !== null
         const ends = message.type === 'result' && resultEndsExchange(state.pendingSendUuids, message)
-        deliver(state, mapSdkMessage(state, message, { exchangeContinues: message.type === 'result' && !ends }))
+        const events = mapSdkMessage(state, message, { exchangeContinues: message.type === 'result' && !ends })
+        // A step's pictures are on disk before the step says where they are.
+        if (state.toolImageWrites?.length) await Promise.all(state.toolImageWrites.splice(0))
+        deliver(state, events)
         if (ends) endTurn(state)
         // The fork point a rewind asked for is not in the session: this child
         // runs a session of its own nobody recorded. The next send starts a
@@ -2168,6 +2174,15 @@ export function mapSdkMessage(
     // own, and a turn a steered message extended is several exchanges. Told
     // on `turn_completed` and cleared at every turn end.
     turnUsage?: ConversationTurnUsage
+    // The file reads among this session's calls: a picture a read returns is
+    // the file the chat already shows by its path, and is not kept twice.
+    fileReadToolUseIds?: Set<string>
+    // The folder the session works in: with its workspace and agent, the
+    // conversation a step's pictures are kept under (tool-result-images.ts).
+    workspaceRoot?: string
+    // Pictures being written for steps this message reported; the caller
+    // waits for them before the events go out, so no path names a missing file.
+    toolImageWrites?: Promise<void>[]
   },
   message: Record<string, unknown>,
   // exchangeContinues: a `result` that answers only part of what the child was
@@ -2175,7 +2190,13 @@ export function mapSdkMessage(
   // counts its cost. interrupted: the tail of an exchange a Stop cut off, read
   // only for where the session stands; its result settles the chain and leaves
   // its cost in the running total for the next result to report.
-  options: { exchangeContinues?: boolean; interrupted?: boolean } = {},
+  // saveToolImages: where a step's returned pictures are written
+  // (tool-result-images.ts); false keeps none, as an import does.
+  options: {
+    exchangeContinues?: boolean
+    interrupted?: boolean
+    saveToolImages?: SaveToolResultImages | false
+  } = {},
 ): ConversationEvent[] {
   const turnId = state.turn?.turnId
   const events: ConversationEvent[] = []
@@ -2412,6 +2433,8 @@ export function mapSdkMessage(
           continue
         }
         if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue
+        if (block.name === 'Read' && typeof block.id === 'string')
+          (state.fileReadToolUseIds ??= new Set()).add(block.id)
         const toolInput = asRecord(block.input) ?? {}
         const payload: ConversationToolStartedPayload = {
           turnId,
@@ -2456,6 +2479,23 @@ export function mapSdkMessage(
         if (toolUseId && state.subagents?.get(toolUseId)?.background && isBackgroundLaunchAck(output)) continue
         const declined = toolUseId !== undefined && state.declinedToolUseIds?.delete(toolUseId) === true
         const command = commandOutcome(message.tool_use_result, block.is_error === true, output)
+        // A screenshot, or any picture a tool hands back, kept to show under
+        // its step; a file read's picture is the file itself, shown by path.
+        const fileRead = toolUseId !== undefined && state.fileReadToolUseIds?.delete(toolUseId) === true
+        const keep = options.saveToolImages === false ? null : (options.saveToolImages ?? saveToolResultImages)
+        const pictures =
+          keep && state.workspaceRoot && !fileRead && toolUseId && !declined ? toolResultImages(block.content) : []
+        let images: string[] = []
+        if (keep && pictures.length) {
+          const write = keep({
+            key: { workspaceRoot: state.workspaceRoot!, workspaceId: state.workspaceId, agentId: state.agentId },
+            toolUseId: toolUseId!,
+            images: pictures,
+          })
+          // The same list, which the write trims of any file it could not make.
+          images = write.paths
+          ;(state.toolImageWrites ??= []).push(write.written)
+        }
         const payload: ConversationToolOutputPayload = {
           turnId,
           toolCallId: toolUseId,
@@ -2471,6 +2511,7 @@ export function mapSdkMessage(
             : {}),
           isError: block.is_error === true,
           ...(parentToolUseId ? { parentToolUseId } : {}),
+          ...(images.length ? { images } : {}),
         }
         events.push(eventFor(state, 'tool_output', payload))
       }

@@ -1,4 +1,5 @@
 import type { ConversationToolKind } from '../../shared/conversation-runtime'
+import { toolResultImages, type ToolResultImage } from './tool-result-images'
 import type { ThreadItem, TurnPlanUpdatedNotification } from './codex-protocol'
 
 type RecordValue = Record<string, unknown>
@@ -7,6 +8,8 @@ export type CodexToolResult = {
   output: unknown
   status: 'ok' | 'error' | 'declined'
   exitCode?: number
+  /** Pictures the step returned, for the adapter to write to disk (tool-result-images.ts). */
+  images?: ToolResultImage[]
 }
 
 // Every item type Codex can send is named here, so regenerating the protocol
@@ -95,8 +98,23 @@ export function codexToolResult(item: ThreadItem): CodexToolResult {
         status: base,
         ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}),
       }
-    case 'mcpToolCall':
-      return item.error ? { output: item.error.message, status: 'error' } : { output: item.result ?? '', status: base }
+    case 'mcpToolCall': {
+      if (item.error) return { output: item.error.message, status: 'error' }
+      // A result with pictures (a screenshot) has them taken out to be shown,
+      // never left in as base64 for the transcript to print, and its words
+      // are the output. Any other result is handed on whole, as it always was.
+      const content = item.result?.content ?? []
+      const images = toolResultImages(content)
+      if (images.length === 0) return { output: item.result ?? '', status: base }
+      const words = content
+        .map((entry) => {
+          const block = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : null
+          return block?.type === 'text' && typeof block.text === 'string' ? block.text : ''
+        })
+        .filter(Boolean)
+        .join('\n')
+      return { output: words, status: base, images }
+    }
     case 'dynamicToolCall':
       return {
         output: (item.contentItems ?? [])
