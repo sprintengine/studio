@@ -368,7 +368,10 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
   ))
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[color:var(--bg-surface)] p-6" onKeyDown={onKeyDown}>
+    <div
+      className="h-full min-h-0 overflow-y-auto bg-[color:var(--bg-surface)] p-6 [scrollbar-gutter:stable]"
+      onKeyDown={onKeyDown}
+    >
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3">
         {/* The section heading the app's other lists wear: the label muted, the
             count beside it in mono. The card below is the group's edge, so the

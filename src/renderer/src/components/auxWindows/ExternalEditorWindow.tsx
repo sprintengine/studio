@@ -641,7 +641,7 @@ function renderBody(
   }
   if (showPreview) {
     return (
-      <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-8">
+      <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-8 [scrollbar-gutter:stable]">
         <div className="mx-auto max-w-4xl">{renderMarkdown(buffer.value)}</div>
       </div>
     )

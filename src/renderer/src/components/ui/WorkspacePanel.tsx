@@ -76,7 +76,10 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
           </aside>
         ) : null}
 
-        <div className={`min-h-0 flex-1 overflow-y-auto ${bodyClassName ?? ''}`}>
+        {/* The body keeps its scrollbar's lane whether or not it scrolls, so
+            the centred column below stays put when a section grows past the
+            fold and the bar appears — the same reason the chat column does. */}
+        <div className={`min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] ${bodyClassName ?? ''}`}>
           <div className={contentClassName ?? 'mx-auto w-full max-w-[760px] px-4 py-5'}>{children}</div>
         </div>
       </div>
