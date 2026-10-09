@@ -6,6 +6,7 @@ import { test } from 'vitest'
 
 import type { ConversationEvent, ConversationEventType } from '../shared/conversation-runtime'
 import { ConversationRuntime } from './conversation-runtime'
+import { conversationSummaryPhase } from '../shared/conversation/phase'
 import { createConversationPeekService } from './conversation-peek/service'
 import type { ConversationProviderAdapter, MockAdapterSessionInput } from './providers/mock-conversation-provider'
 
@@ -164,6 +165,7 @@ test("a chat's folder is in use while its provider child lives or a turn runs, a
  */
 function backgroundAgentProvider() {
   const disposed: string[] = []
+  const stopped: string[] = []
   let sink: ((event: ConversationEvent) => void) | undefined
   let session: MockAdapterSessionInput | undefined
   const adapter: ConversationProviderAdapter = {
@@ -179,6 +181,10 @@ function backgroundAgentProvider() {
       disposed.push(sessionId)
       return true
     },
+    stopBackgroundTasks: async (sessionId) => {
+      stopped.push(sessionId)
+      return true
+    },
   }
   const agent = (status: 'running' | 'completed') =>
     sink!(
@@ -189,7 +195,10 @@ function backgroundAgentProvider() {
         description: 'Run the long suite',
       }),
     )
-  return { adapter, disposed, agent }
+  // The shells and monitors the child runs, as the provider reports them: the
+  // whole list each time it changes.
+  const tasks = (backgroundTasks: unknown[]) => sink!(runtimeEvent(session!, 'session_updated', { backgroundTasks }))
+  return { adapter, disposed, stopped, agent, tasks }
 }
 
 function backgroundAgents(runtime: ConversationRuntime): number | undefined {
@@ -232,6 +241,83 @@ test('the idle sweep leaves a chat whose background agent is still running', asy
     },
     { now: () => clock },
   )
+})
+
+// A monitor wakes the agent when it reports, and a dev server is still being
+// served: ending the child ends both, and the monitor never reports at all.
+test('the idle sweep leaves a chat whose shell or monitor is still running, and only a monitor keeps it working', async () => {
+  const clock = 1_000_000
+  const provider = backgroundAgentProvider()
+  await withRuntime(
+    [provider.adapter],
+    async ({ runtime, workspaceRoot }) => {
+      runtime.setIdleThresholdMs(60_000)
+      const started = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'agent-provider',
+        modelId: 'model',
+      })
+      assert.ok(started.ok)
+      const sessionId = started.session.sessionId
+      const summary = () => {
+        const listed = runtime.listSessions()
+        return listed.ok ? listed.sessions[0] : undefined
+      }
+      assert.ok((await runtime.sendTurn({ sessionId, message: 'watch CI and start the dev server' })).ok)
+      const monitor = { taskId: 'task_mon', kind: 'monitor', description: 'CI checks' }
+      const server = { taskId: 'task_dev', kind: 'command', description: 'npm run dev' }
+
+      provider.tasks([monitor, server])
+      await until(() => summary()?.backgroundTasks?.length === 2)
+      assert.equal(conversationSummaryPhase(summary()!), 'running')
+      assert.deepEqual(runtime.sweepIdleSessions(clock + 10 * 60_000), [])
+
+      provider.tasks([server])
+      await until(() => summary()?.backgroundTasks?.length === 1)
+      assert.equal(conversationSummaryPhase(summary()!), 'completed', 'a dev server left running is not work')
+      assert.deepEqual(runtime.sweepIdleSessions(clock + 10 * 60_000), [], 'but it is still being served')
+
+      provider.tasks([])
+      await until(() => summary()?.backgroundTasks === undefined)
+      assert.deepEqual(runtime.sweepIdleSessions(clock + 10 * 60_000), [sessionId])
+      assert.deepEqual(provider.disposed, [sessionId])
+    },
+    { now: () => clock },
+  )
+})
+
+// Stop between turns has no turn to end: what it ends is what the last turn
+// left running. With nothing running it refuses, as it always did.
+test('Stop between turns stops the background work the chat lists, and refuses when there is none', async () => {
+  const provider = backgroundAgentProvider()
+  await withRuntime([provider.adapter], async ({ runtime, workspaceRoot }) => {
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'agent-provider',
+      modelId: 'model',
+    })
+    assert.ok(started.ok)
+    const sessionId = started.session.sessionId
+    assert.ok((await runtime.sendTurn({ sessionId, message: 'watch CI' })).ok)
+
+    assert.deepEqual(await runtime.interrupt({ sessionId }), {
+      ok: false,
+      message: 'Conversation session has no active turn.',
+    })
+    assert.deepEqual(provider.stopped, [])
+
+    provider.tasks([{ taskId: 'task_mon', kind: 'monitor', description: 'CI checks' }])
+    await until(() => {
+      const listed = runtime.listSessions()
+      return listed.ok && listed.sessions[0]?.backgroundTasks?.length === 1
+    })
+    assert.equal((await runtime.interrupt({ sessionId })).ok, true)
+    assert.deepEqual(provider.stopped, [sessionId])
+  })
 })
 
 test('the idle sweep rests while the machine sleeps', async () => {

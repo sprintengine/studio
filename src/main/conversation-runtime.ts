@@ -56,6 +56,7 @@ import { cliRuntimesOnPlatform, distroOfHostId, type ExecutionHostId } from '../
 import { wslInputInRootSpelling } from '../shared/host-paths'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { isTurnlessSubagentStep, readSubagentStatus } from '../shared/conversation/subagents'
+import { readBackgroundTasks } from '../shared/conversation/backgroundTasks'
 import { applyFileActivityEvent } from '../shared/conversation/fileActivity'
 import {
   readToolDetail,
@@ -812,7 +813,10 @@ export class ConversationRuntime {
           this.eventForSession(session, 'session_updated', { permissionPreset: 'none', notice: fellBack }),
           {},
         )
-      // Agents the transcript left running belonged to a process that is gone.
+      // Shells and monitors the transcript left running belonged to a process
+      // that is gone, and so did its agents.
+      if (session.backgroundTasks)
+        await this.emit(session, this.eventForSession(session, 'session_updated', { backgroundTasks: [] }), {})
       for (const agent of Array.from(session.runningSubagents.values()))
         await this.emit(
           session,
@@ -1650,8 +1654,15 @@ export class ConversationRuntime {
       )
     const session = this.sessions.get(input.sessionId)
     if (!session) return sessionNotFound()
-    if (!session.activeTurnId) return { ok: false, message: 'Conversation session has no active turn.' }
     const adapter = this.getAdapterForProviderId(session.providerId)
+    if (!session.activeTurnId) {
+      // Between turns, Stop is for what the last turn left running: the
+      // shells and monitors the chat names above its composer. Each reports
+      // its own end, which takes it off that list.
+      if (session.backgroundTasks && (await adapter?.stopBackgroundTasks?.(session.sessionId)))
+        return { ok: true, session: this.toSummary(session) }
+      return { ok: false, message: 'Conversation session has no active turn.' }
+    }
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
 
     const turnId = session.activeTurnId
@@ -1727,6 +1738,7 @@ export class ConversationRuntime {
     session.canceledTurnIds.clear()
     session.runningSubagents.clear()
     session.backgroundAgents = 0
+    session.backgroundTasks = undefined
     session.pendingSkills = undefined
     session.invokedSkills = undefined
     session.updatedAt = this.now()
@@ -1943,13 +1955,14 @@ export class ConversationRuntime {
   // Dispose the child process of every idle stateful session, keeping the
   // session (and its resume cursor) so the next turn transparently respawns.
   // Never disposes mid-turn, while an approval/question card is pending, or
-  // while an agent the chat spawned is still running: a background agent
-  // outlives the turn that launched it and reports without moving
-  // `updatedAt`, and it lives in the child this would end.
+  // while an agent, shell or monitor the chat started is still running: each
+  // outlives the turn that launched it and works without moving `updatedAt`,
+  // and each lives in the child this would end. A monitor ended this way
+  // never wakes the agent it was set for, and a dev server just stops.
   sweepIdleSessions(now: number = this.now()): string[] {
     const disposed: string[] = []
     for (const session of this.sessions.values()) {
-      if (isSessionBusy(session) || session.runningSubagents.size > 0) continue
+      if (isSessionBusy(session) || session.runningSubagents.size > 0 || session.backgroundTasks) continue
       if (now - session.updatedAt < this.idleThresholdMs) continue
       // An idle chat does not hold a file handle open for the rest of the run;
       // its next event reopens the stream.
@@ -2366,6 +2379,12 @@ export class ConversationRuntime {
         ...session.capabilities,
         ...(event.payload.capabilities as import('../shared/conversation-runtime').ConversationCapabilities),
       }
+    // The provider reports the whole list each time it changes; an empty one
+    // says nothing runs any more.
+    if (event.type === 'session_updated') {
+      const backgroundTasks = readBackgroundTasks(event.payload)
+      if (backgroundTasks) session.backgroundTasks = backgroundTasks.length > 0 ? backgroundTasks : undefined
+    }
     if (event.type === 'session_updated' && typeof event.payload?.revertedAfterSeq === 'number')
       session.revertedNote = `Files were ${event.payload.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${event.payload.revertedAfterSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
     // The files its tool calls touch, a background agent's included: the Files
@@ -4004,6 +4023,7 @@ export class ConversationRuntime {
       lastAssistantText: session.lastAssistantText,
       lastAssistantTail: session.lastAssistantTail,
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
+      ...(session.backgroundTasks ? { backgroundTasks: session.backgroundTasks } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
       ...(session.lastUserMessageAt !== undefined ? { lastUserMessageAt: session.lastUserMessageAt } : {}),
       // Only while it is waiting: a turn can also leave the wait by a path

@@ -62,6 +62,15 @@ the Files tree marks. It is additive in the same way. A server built before it
 leaves it out, and the tree reads that as an agent touching nothing: the tree
 draws no trail for that chat, and nothing else reads the member.
 
+So is `backgroundTasks`: the shells, monitors and workflows the chat's process
+still runs after its turn ended, which a `session_updated` event carries as the
+whole list each time it changes. A server built before it leaves both out, and
+the desktop reads that as nothing running: a monitor does not keep the chat
+working, the composer names nothing it waits on, and that server's own idle
+sweep is the one that decides whether its child lives. Stop between turns is the
+same `interrupt` the wires already carry: a server built before it answers as
+it always did, that the session has no active turn, and the chat says so.
+
 ## The support window
 
 Both integer wires accept **one version of slack**: the current version and the

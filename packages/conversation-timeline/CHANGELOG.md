@@ -4,6 +4,14 @@
 
 ### Added
 
+- The projection carries `backgroundTasks`: the shells, monitors and workflows
+  the session's process still runs after its turn ended, as the latest
+  `session_updated` listed them, emptied when a session starts.
+  `readBackgroundTasks` is the reader, `backgroundTasksWakeAgent` says whether
+  any will wake the agent (a monitor with a deadline or a task does; a command
+  does not), and `describeBackgroundTasks` names them in one line ("Waiting on
+  monitor CI checks", "Running: npm run dev").
+
 - A tool entry carries `images`, the pictures its step returned, read from
   a `tool_output`'s `images` member (paths that are text, at most eight,
   `MAX_TOOL_IMAGES`) by `readImagePaths`. The full and the incremental
