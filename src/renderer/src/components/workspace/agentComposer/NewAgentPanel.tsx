@@ -1174,18 +1174,16 @@ export default function NewAgentPanel({
   const effectiveMode = useCliPermissionMode(launchCli)
 
   // ── The skill trigger ────────────────────────────────────────────────────
-  // A terminal agent takes a skill as its CLI types one (`/name` on Claude
-  // Code, `$name` on Codex), so the trigger is the CLI's declared prefix and a
-  // pick inserts the CLI's mention. A chat carries skills as attachments rather
-  // than a typed invocation, the same chips the "+" menu adds, so there `/`
-  // opens the picker and a pick becomes a chip, whichever runtime the chat
-  // runs on. A plain shell takes neither.
+  // A chat carries skills as attachments rather than a typed invocation, the
+  // same chips the "+" menu adds, so `/` opens the picker and a pick becomes a
+  // chip, whichever runtime the chat runs on. A terminal agent has its CLI's
+  // own `/` picker once it starts, so its prompt here opens none.
   const skillIntegration = React.useMemo(() => {
     if (!commandCli) return undefined
     return pluginCatalogEntries.find((entry) => entry.id === commandCli)?.skillIntegration
   }, [commandCli, pluginCatalogEntries])
   const mentionPrefix = resolveSkillMentionPrefix(skillIntegration)
-  const skillMarker = selection.kind === 'conversation' ? '/' : selection.kind === 'general' ? mentionPrefix : undefined
+  const skillMarker = selection.kind === 'conversation' ? '/' : undefined
 
   // `/schedule every weekday at 9`: the schedule said where the cursor is.
   // Offered wherever scheduling is, from a chat launch too — picking a
@@ -1248,14 +1246,8 @@ export default function NewAgentPanel({
   }
 
   const applySkillMention = (skill: WorkspaceSkill) => {
-    if (selection.kind === 'conversation') {
-      if (!composer.skills.some((entry) => entry.id === skill.id)) composer.setSkills([...composer.skills, skill])
-      replaceMentionToken('')
-      return
-    }
-    const mention = renderSkillMention(skillIntegration, skill.id)
-    if (!mention) return
-    replaceMentionToken(`${mention} `)
+    if (!composer.skills.some((entry) => entry.id === skill.id)) composer.setSkills([...composer.skills, skill])
+    replaceMentionToken('')
   }
 
   // Switching CLIs re-renders mentions already typed in the new one's form.

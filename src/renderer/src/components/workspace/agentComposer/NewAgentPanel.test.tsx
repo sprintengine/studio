@@ -3808,22 +3808,16 @@ test('NewAgentPanel', async () => {
       }
     })
 
-    await check('a terminal agent: a / mid-draft inserts the CLI’s mention in place of just its token', async () => {
+    await check('a terminal agent: / opens no picker here, its CLI has its own once it starts', async () => {
       seedStore()
       const view = await render({ initialSelection: { kind: 'general' } })
       const field = composerField(view.container)
-      const { EditorView } = await import('@codemirror/view')
       await act(async () => {
-        typeIntoComposer(field, 'first line\nthen /back the rest')
-        EditorView.findFromDOM(field.closest<HTMLElement>('.cm-editor')!)!.dispatch({ selection: { anchor: 21 } })
+        typeIntoComposer(field, 'first line\n/back')
       })
       await settlePicker()
-      assert.ok(skillRow('backlog'), 'the caret in the token opens the picker')
-      await act(async () => {
-        skillRow('backlog')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      await settlePicker()
-      assert.equal(composerText(field), 'first line\nthen /backlog the rest', 'the rest of the draft is left as it was')
+      assert.equal(skillRow('backlog'), undefined, 'no skill picker opens for a terminal launch')
+      assert.equal(composerText(field), 'first line\n/back', 'the draft is left as typed')
       view.unmount()
     })
 
