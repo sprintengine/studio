@@ -25,7 +25,7 @@ cancelling the browser, rather than a shape the system had named.
 | Part | Class | Required |
 |---|---|---|
 | Link | `.ds-link-button` | yes — a `<button>` |
-| Ink | `--quiet` | no — the default is accent ink |
+| Ink | `--quiet`, `--name` | no — the default is accent ink |
 | Type | `--inherit` | no — the default is `font.size.meta` |
 
 `display: inline`, so the link wraps with the sentence rather than sitting in it
@@ -42,6 +42,13 @@ nothing is painted inside it.
   "Show details". The underline is standing rather than a hover reveal because a
   quiet link with no colour and no box is indistinguishable from the sentence
   around it until the pointer happens to cross it.
+- **`--name`** — `text.primary`, underlined on hover. The name of the thing a
+  list row is about, when the name is what opens that thing's details: the
+  extensions list in Settings, where a row's name opens its details popover. At
+  rest it has to read as the row's title, not as an action — and the accent
+  would turn every title in the list into a second accent. The hover underline
+  is what says it can be pressed; the row around it may also open the same
+  details on a click, but the name is the keyboard's way in.
 - **`--row`** — a full-width flex row with its parts baseline-aligned, for a
   LIST of links rather than one set inside a sentence: a column of changed files
   where the name, the folder and the counts have to line up down the list. It is
@@ -62,7 +69,7 @@ nothing is painted inside it.
 | State | Treatment |
 |---|---|
 | Rest | Per ink above |
-| Hover | Ink one step; accent adds an underline, quiet already has one |
+| Hover | Ink one step; accent and name add an underline, quiet already has one |
 | Focus-visible | The shared ring, at the standard offset |
 | Disabled | 45% opacity, `not-allowed`, **underline dropped**, ink kept |
 | Pressed | **Nothing.** A control that shrank mid-sentence would move the words after it |

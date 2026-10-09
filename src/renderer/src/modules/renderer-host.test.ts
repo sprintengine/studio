@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 
 import { createRendererHost, type WorkspaceTypeDefinition } from './renderer-host'
 import type { NotificationActionContext } from './renderer-host'
-import { voiceDictationRendererModule } from './voice-dictation-module'
 import type { AppNotification, LayoutTemplate } from '../types/workspace'
 import { COMMAND_REGISTRY } from '../commands/commandRegistry'
 import { test } from 'vitest'
@@ -179,7 +178,7 @@ test('renderer-host', async () => {
     ['primary+alt+h'],
     'default keybindings are normalized and de-duplicated like the shell registry',
   )
-  const suiteRun1 = registeredHello.run()
+  const suiteRun1 = registeredHello.run({ activeWorkspaceId: null, activeWorkspaceMode: null })
   assert.equal(helloRuns, 1, 'the registered handler is the module-provided callback')
 
   assert.equal(
@@ -472,88 +471,101 @@ test('renderer-host', async () => {
     throw new Error('top bar item component should not be evaluated during registration')
   }
   topBarHost
-    .hostFor('voice-dictation')
-    .registerTopBarItem({ id: 'voice-dictation', order: 10, Component: topBarComponent })
+    .hostFor('fixture-module')
+    .registerTopBarItem({ id: 'fixture-module', order: 10, Component: topBarComponent })
   topBarHost.hostFor('acme.compass').registerTopBarItem({ id: 'compass', order: 5, Component: topBarComponent })
 
   assert.equal(
-    topBarHost.getTopBarItems().find((item) => item.id === 'voice-dictation')?.moduleId,
-    'voice-dictation',
+    topBarHost.getTopBarItems().find((item) => item.id === 'fixture-module')?.moduleId,
+    'fixture-module',
     'top bar items record their owning module for enablement gating',
   )
   assert.throws(
     () =>
-      topBarHost
-        .hostFor('impostor')
-        .registerTopBarItem({ id: 'voice-dictation', order: 1, Component: topBarComponent }),
-    /Top bar item "voice-dictation" is already registered by module "voice-dictation"/,
+      topBarHost.hostFor('impostor').registerTopBarItem({ id: 'fixture-module', order: 1, Component: topBarComponent }),
+    /Top bar item "fixture-module" is already registered by module "fixture-module"/,
     'duplicate top bar item ids fail with an explicit error naming the owner',
   )
   assert.throws(
-    () => topBarHost.hostFor('voice-dictation').registerTopBarItem({ id: '  ', order: 1, Component: topBarComponent }),
+    () => topBarHost.hostFor('fixture-module').registerTopBarItem({ id: '  ', order: 1, Component: topBarComponent }),
     /non-empty string/,
     'blank top bar item ids are rejected',
   )
   assert.deepEqual(
     topBarHost.getTopBarItems().map((item) => item.id),
-    ['compass', 'voice-dictation'],
+    ['compass', 'fixture-module'],
     'top bar items sort by order then id — deterministic across reloads',
   )
   assert.deepEqual(
-    topBarHost.getTopBarItems((moduleId) => moduleId !== 'voice-dictation').map((item) => item.id),
+    topBarHost.getTopBarItems((moduleId) => moduleId !== 'fixture-module').map((item) => item.id),
     ['compass'],
     "a disabled module's top bar control is filtered out reactively — the toggle needs no reload",
   )
   assert.deepEqual(
     topBarHost.getTopBarItems(() => true).map((item) => item.id),
-    ['compass', 'voice-dictation'],
+    ['compass', 'fixture-module'],
     're-enabling restores the control without re-registration',
   )
 
   console.log('renderer host top bar item tests passed')
 
-  // --- Voice dictation module contributions -------------------
-  // The real module registers all three surfaces through the host — the top-bar
-  // mic, the `voice-dictation.toggle` command, and the settings section — so the
-  // enablement filter alone adds/removes every voice entry point, with no
-  // selectModuleEnabled('voice-dictation') checks left in core consumers.
+  // --- One module's contributions across surfaces -------------------
+  // A module that registers a top-bar control, a command and a settings section
+  // through the host is gated by the enablement filter alone: disabling it
+  // removes every entry point, with no selectModuleEnabled(...) checks in core
+  // consumers.
 
-  const voiceKernel = createRendererHost()
-  voiceDictationRendererModule.registerRenderer?.(voiceKernel.hostFor('voice-dictation'))
+  const fixtureKernel = createRendererHost()
+  const fixtureHost = fixtureKernel.hostFor('fixture-module')
+  fixtureHost.registerTopBarItem({ id: 'fixture-module', order: 10, Component: topBarComponent })
+  fixtureHost.registerCommand({
+    id: 'toggle',
+    title: 'Toggle Fixture',
+    category: 'Fixture',
+    scopes: ['global'],
+    defaultKeybindings: ['Primary+Shift+1'],
+    run: () => undefined,
+  })
+  fixtureHost.registerSettingsSection({
+    id: 'fixture-module',
+    label: 'Fixture',
+    icon: sectionIcon,
+    Component: sectionComponent,
+  })
 
-  const voiceEnabled = () => true
-  const voiceDisabled = (moduleId: string) => moduleId !== 'voice-dictation'
+  const fixtureEnabled = () => true
+  const fixtureDisabled = (moduleId: string) => moduleId !== 'fixture-module'
   assert.equal(
-    voiceKernel.getTopBarItems(voiceEnabled).some((item) => item.id === 'voice-dictation'),
+    fixtureKernel.getTopBarItems(fixtureEnabled).some((item) => item.id === 'fixture-module'),
     true,
-    'voice module contributes the top-bar mic control',
+    'the module contributes its top-bar control',
   )
   assert.equal(
-    voiceKernel.getModuleCommands(voiceEnabled).some((command) => command.id === 'voice-dictation.toggle'),
+    fixtureKernel.getModuleCommands(fixtureEnabled).some((command) => command.id === 'fixture-module.toggle'),
     true,
-    'voice module contributes the toggle command under its namespaced id',
+    'the module contributes its command under the namespaced id',
   )
   assert.deepEqual(
-    voiceKernel.getModuleCommand('voice-dictation.toggle')?.defaultKeybindings,
+    fixtureKernel.getModuleCommand('fixture-module.toggle')?.defaultKeybindings,
     ['primary+shift+1'],
-    'the toggle keeps its default binding through the module path (host-normalized form)',
+    'the command keeps its default binding through the module path (host-normalized form)',
   )
   assert.equal(
-    voiceKernel.getSettingsSections(voiceEnabled).some((section) => section.id === 'voice-dictation'),
+    fixtureKernel.getSettingsSections(fixtureEnabled).some((section) => section.id === 'fixture-module'),
     true,
-    'voice module contributes the settings section',
+    'the module contributes its settings section',
   )
   assert.equal(
     [
-      ...voiceKernel.getTopBarItems(voiceDisabled),
-      ...voiceKernel.getModuleCommands(voiceDisabled),
-      ...voiceKernel.getSettingsSections(voiceDisabled),
+      ...fixtureKernel.getTopBarItems(fixtureDisabled),
+      ...fixtureKernel.getModuleCommands(fixtureDisabled),
+      ...fixtureKernel.getSettingsSections(fixtureDisabled),
     ].length,
     0,
-    'disabling the module removes the mic, the shortcut, and the settings tab because nothing registered them',
+    'disabling the module removes the control, the shortcut, and the settings tab because nothing registered them',
   )
 
-  console.log('voice dictation module contribution tests passed')
+  console.log('module contribution gating tests passed')
 
   // --- Global surfaces (door-routed full-page surface registry, epic 1704) -------
 
@@ -1048,13 +1060,13 @@ test('renderer-host', async () => {
       bridgeOutcome = {
         ok: false,
         code: 'permission_missing',
-        message: 'Module "weather-deck" does not declare "ipc:invoke".',
+        message: 'Module "weather-deck" does not declare "module:bridge".',
       }
       await assert.rejects(
         () => invokeHost.invoke('weather-deck:forecast'),
         (error: unknown) =>
           error instanceof Error &&
-          /does not declare "ipc:invoke"/.test(error.message) &&
+          /does not declare "module:bridge"/.test(error.message) &&
           (error as Error & { code?: string }).code === 'permission_missing',
         'a refusal surfaces as a thrown Error carrying the message and the structured code',
       )

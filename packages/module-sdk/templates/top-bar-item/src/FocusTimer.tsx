@@ -20,7 +20,8 @@ export function createFocusTimer(host: RendererHost) {
   const readEndsAt = () => host.getModuleAppState<number>(ENDS_AT_KEY) ?? null
 
   return function FocusTimer() {
-    const endsAt = useSyncExternalStore(subscribe, readEndsAt)
+    // The third argument is what a server render (the smoke test's) reads.
+    const endsAt = useSyncExternalStore(subscribe, readEndsAt, readEndsAt)
     const [now, setNow] = useState(() => Date.now())
 
     useEffect(() => {

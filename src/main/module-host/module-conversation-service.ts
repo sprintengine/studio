@@ -11,8 +11,13 @@
 // `conversation:read` covers subscribe, transcript, list and watch;
 // `conversation:operate` covers everything and implies read. The calls that
 // answer a result say `permission_missing`; the ones that cannot (subscribe,
-// list, watch) throw, since calling them without the permission is a mistake
-// in the module and not a state of the world.
+// follow, list, watch) throw, since calling them without the permission is a
+// mistake in the module and not a state of the world. A malformed ref or
+// cursor is the same kind of mistake. A chat that is not known yet is not:
+// `subscribe` and `follow` attach to it and deliver from the moment it is
+// known to be the module's (a saved chat whose workspace the host has not
+// loaded at startup), and a ref naming nothing of the module's delivers
+// nothing, which no module can tell from a quiet chat.
 //
 // A module picks any of the four presets for its chats, up to a ceiling:
 // `auto`, or `bypass` for a module that declared `conversation:bypass`, so the
@@ -96,6 +101,8 @@ import { clampToModuleToolCaller } from './module-tool-caller'
 export type ModuleConversationWorkspace = {
   id: string
   folderPath?: string | null
+  /** The scheduled agent whose run this chat's workspace is; see `Workspace.scheduledAgentId`. */
+  scheduledAgentId?: string | null
   agents: Record<string, AgentState>
 }
 
@@ -181,6 +188,9 @@ const APPROVAL_DECISIONS: ReadonlySet<string> = new Set<ModuleConversationApprov
   'conversation',
   'deny',
 ])
+
+// A worktree's name becomes a branch and a folder; a sentence is not one.
+const MAX_WORKTREE_NAME_CHARS = 80
 
 /** The loosest preset a module's chats run on unless it declared `conversation:bypass`. */
 export const MODULE_CONVERSATION_DEFAULT_CEILING: CliPermissionPreset = 'auto'
@@ -289,6 +299,40 @@ function redactFrame(frame: ConversationSessionFrame): ModuleConversationStreamF
   if (frame.type === 'snapshot')
     return { ...frame, page: { ...frame.page, events: frame.page.events.map(redactEvent) } }
   return frame
+}
+
+/**
+ * A finished turn's reply, read off a transcript: the last finished turn's, or
+ * `turnId`'s. The reply is what `turn_completed` says (`text`: the agent's last
+ * message); a turn recorded before the host said it, or on a provider that does
+ * not, answers with the text the turn streamed. A turn a steered message merged
+ * into the next is not finished: its reply is the next one's.
+ */
+export function replyOf(
+  events: readonly ModuleConversationEvent[],
+  turnId?: string,
+): ModuleConversationResult<{ turnId: string; text: string }> {
+  const completed = events.findLast(
+    (event) =>
+      event.type === 'turn_completed' &&
+      typeof event.payload?.turnId === 'string' &&
+      (turnId === undefined ? event.payload.steered !== true : event.payload.turnId === turnId),
+  )
+  const id = completed?.payload?.turnId
+  if (!completed || typeof id !== 'string') {
+    return failure(
+      'no_reply',
+      turnId === undefined
+        ? 'This conversation has no finished turn yet.'
+        : `Turn "${turnId}" has not finished in this conversation.`,
+    )
+  }
+  if (typeof completed.payload?.text === 'string') return { ok: true, turnId: id, text: completed.payload.text }
+  const streamed = events
+    .filter((event) => event.type === 'content_delta' && event.payload?.turnId === id)
+    .map((event) => (typeof event.payload?.text === 'string' ? event.payload.text : ''))
+    .join('')
+  return { ok: true, turnId: id, text: streamed }
 }
 
 function actionResult(result: ConversationSessionActionResult): ModuleConversationResult {
@@ -432,9 +476,12 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     }
   }
 
-  function summarize(workspaceId: string, agent: AgentState): ModuleConversationSummary {
+  function summarize(workspace: ModuleConversationWorkspace, agent: AgentState): ModuleConversationSummary {
+    const workspaceId = workspace.id
     const providerId = agent.conversation?.providerId ?? ''
     const live = liveSession({ workspaceId, agentId: agent.id })
+    // A scheduled run's chat says which of the module's schedules started it.
+    const scheduledAgentId = workspace.scheduledAgentId?.trim() || undefined
     return {
       workspaceId,
       agentId: agent.id,
@@ -445,6 +492,8 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       modelId: live?.modelId ?? agent.conversation?.modelId ?? '',
       status: live?.status ?? 'absent',
       ...presetOf(live, agent),
+      ...(scheduledAgentId ? { scheduledAgentId } : {}),
+      ...(scheduledAgentId && agent.scheduledAgentTag ? { scheduledAgentTag: agent.scheduledAgentTag } : {}),
     }
   }
 
@@ -454,7 +503,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       if (filter?.workspaceId && workspace.id !== filter.workspaceId) continue
       for (const agent of Object.values(workspace.agents)) {
         if (!agent || agent.runtimeKind !== 'conversation' || agent.ownerModuleId !== moduleId) continue
-        summaries.push(summarize(workspace.id, agent))
+        summaries.push(summarize(workspace, agent))
       }
     }
     return summaries
@@ -495,6 +544,19 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         `Module "${moduleId}" must declare "conversation:bypass" to let a chat use tools without asking.`,
       )
     }
+    const worktree = input.worktree
+    if (
+      worktree !== undefined &&
+      (typeof worktree !== 'object' ||
+        worktree === null ||
+        (worktree.name !== undefined &&
+          (typeof worktree.name !== 'string' || worktree.name.length > MAX_WORKTREE_NAME_CHARS)))
+    ) {
+      return failure(
+        'invalid_input',
+        `"worktree" takes an optional "name" of at most ${MAX_WORKTREE_NAME_CHARS} characters.`,
+      )
+    }
     const permissionPreset = capped(moduleId, input.permissionPreset)
     // A mode belongs to the preset asked for; one lowered to the ceiling
     // runs its own mode.
@@ -513,8 +575,22 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       ...(input.allowedTools?.length ? { allowedTools: input.allowedTools } : {}),
       ownerModuleId: moduleId,
       ...(launchCommandId ? { launchCommandId } : {}),
+      // A chat in a worktree of its own is a new chat, in a workspace of its
+      // own, as a scheduled run's is; it waits in the list rather than taking
+      // the window from whatever the person is doing.
+      ...(worktree
+        ? {
+            newChat: true,
+            newWorktree: true,
+            background: true,
+            ...(worktree.name?.trim() ? { worktreeName: worktree.name.trim() } : {}),
+          }
+        : {}),
     })
-    if (!launched.ok) return failure(launched.code as ModuleConversationErrorCode, launched.message)
+    if (!launched.ok) {
+      const code = launched.code === 'workspace_create_failed' ? 'conversation_start_failed' : launched.code
+      return failure(code as ModuleConversationErrorCode, launched.message)
+    }
     const live = liveSession(launched)
     const record = deps.getWorkspaceAgents().find((workspace) => workspace.id === launched.workspaceId)?.agents[
       launched.agentId
@@ -540,7 +616,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     for (const workspace of deps.getWorkspaceAgents()) {
       for (const agent of Object.values(workspace.agents)) {
         if (agent?.ownerModuleId === moduleId && agent.launchCommandId === launchCommandId)
-          return summarize(workspace.id, agent)
+          return summarize(workspace, agent)
       }
     }
     return null
@@ -584,6 +660,10 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
   const subscribers = new Map<string, Set<Subscriber>>()
   // Every open follow's closer, so teardown ends them all.
   const follows = new Set<() => void>()
+  // Follows of chats the host does not know yet (a workspace not loaded at
+  // startup): each is tried again whenever the workspaces change, and starts
+  // once its chat is known to be the module's.
+  const pendingFollows = new Set<() => void>()
   const watchers = new Set<Watcher>()
   let unsubscribeRuntime: (() => void) | null = null
   let unsubscribeWorkspaces: (() => void) | null = null
@@ -626,14 +706,19 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     if (owner) refreshWatchers(owner)
   }
 
+  function onWorkspacesChanged(): void {
+    for (const retry of [...pendingFollows]) retry()
+    refreshWatchers()
+  }
+
   function ensureListening(): void {
     unsubscribeRuntime ??= deps.runtime.onEvent(onRuntimeEvent)
-    if (watchers.size > 0 && deps.onWorkspacesChanged)
-      unsubscribeWorkspaces ??= deps.onWorkspacesChanged(() => refreshWatchers())
+    if ((watchers.size > 0 || pendingFollows.size > 0) && deps.onWorkspacesChanged)
+      unsubscribeWorkspaces ??= deps.onWorkspacesChanged(onWorkspacesChanged)
   }
 
   function releaseIfIdle(): void {
-    if (watchers.size === 0) {
+    if (watchers.size === 0 && pendingFollows.size === 0) {
       unsubscribeWorkspaces?.()
       unsubscribeWorkspaces = null
     }
@@ -641,6 +726,28 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       unsubscribeRuntime?.()
       unsubscribeRuntime = null
     }
+  }
+
+  // A chat's log, redacted as every event a module reads is.
+  async function transcriptFor(
+    moduleId: string,
+    ref: ModuleConversationRef,
+  ): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>> {
+    if (!canRead(moduleId)) return missing(moduleId, 'conversation:read')
+    if (!isRef(ref)) return notOwned(ref)
+    const owned = findOwned(moduleId, ref)
+    if (!owned) return notOwned(ref)
+    if (!owned.workingRoot) {
+      return failure('workspace_folder_missing', `Workspace "${ref.workspaceId}" has no project folder.`)
+    }
+    const read = await deps.runtime
+      .readTranscript({ workspaceRoot: owned.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId })
+      .catch((error: unknown): ConversationTranscriptResult => ({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      }))
+    if (!read.ok) return failure('runtime_refused', read.message)
+    return { ok: true, events: read.events.map(redactEvent) }
   }
 
   // ── The service a module sees ───────────────────────────────────────────
@@ -883,7 +990,14 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
 
       subscribe(ref, cb) {
         requireRead(moduleId)
-        if (!isRef(ref) || !findOwned(moduleId, ref)) throw new Error(notOwned(ref).message)
+        if (!isRef(ref)) throw new Error('A conversation ref names its workspaceId and agentId.')
+        // Attached whether or not the chat is known yet: at startup a saved
+        // chat's workspace may not be loaded, and a subscribe made then would
+        // otherwise be refused for a chat that is the module's. Nothing leaks
+        // by it: every event is checked against the chat's owner as it
+        // arrives, so a ref naming a chat that is not the module's (or
+        // nothing) delivers nothing, ever — the same as a ref to a chat that
+        // is quiet, so it is no probe either.
         const key = refKey(ref)
         const subscriber: Subscriber = { moduleId, ref: { workspaceId: ref.workspaceId, agentId: ref.agentId }, cb }
         const set = subscribers.get(key) ?? new Set()
@@ -899,12 +1013,11 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
 
       follow(ref, options, onFrame) {
         requireRead(moduleId)
-        if (!isRef(ref)) throw new Error(notOwned(ref).message)
-        const owned = findOwned(moduleId, ref)
-        if (!owned) throw new Error(notOwned(ref).message)
-        if (!owned.workingRoot) throw new Error(`Workspace "${ref.workspaceId}" has no project folder.`)
+        if (!isRef(ref)) throw new Error('A conversation ref names its workspaceId and agentId.')
         const cursor = followCursor(options)
         if (typeof cursor === 'string') throw new Error(cursor)
+        const owned = findOwned(moduleId, ref)
+        if (owned && !owned.workingRoot) throw new Error(`Workspace "${ref.workspaceId}" has no project folder.`)
         const followed = { workspaceId: ref.workspaceId, agentId: ref.agentId }
         let open = true
         const deliver = (frame: ModuleConversationStreamFrame) => {
@@ -920,46 +1033,66 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
           open = false
           handle?.dispose()
           follows.delete(close)
+          if (pendingFollows.delete(retry)) releaseIfIdle()
+        }
+        const start = (chat: OwnedChat) => {
+          if (!chat.workingRoot) {
+            close()
+            deliver({ type: 'error', message: `Workspace "${ref.workspaceId}" has no project folder.` })
+            return
+          }
+          handle = deps.follow(
+            {
+              key: { workspaceRoot: chat.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId },
+              ...cursor,
+            },
+            (frame) => {
+              if (!open) return
+              // Read live, as `subscribe` reads it: a permission narrowed, or a
+              // chat's record gone, ends the stream with a sentence.
+              if (!canRead(moduleId) || !findOwned(moduleId, followed)) {
+                close()
+                deliver({ type: 'error', message: 'This conversation is no longer readable by this module.' })
+                return
+              }
+              deliver(redactFrame(frame))
+            },
+          )
+          // A follow undone before the join answered drops what it set up.
+          if (!open) handle.dispose()
+        }
+        // A chat the host does not know yet (its workspace not loaded at
+        // startup) is followed from the moment it is known to be the module's,
+        // as `subscribe` attaches to it. Until then the follow delivers
+        // nothing, which is also all a ref to another's chat ever gets.
+        function retry(): void {
+          if (!open || !canRead(moduleId)) return
+          const known = findOwned(moduleId, followed)
+          if (!known) return
+          pendingFollows.delete(retry)
+          releaseIfIdle()
+          start(known)
         }
         follows.add(close)
-        handle = deps.follow(
-          {
-            key: { workspaceRoot: owned.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId },
-            ...cursor,
-          },
-          (frame) => {
-            if (!open) return
-            // Read live, as `subscribe` reads it: a permission narrowed, or a
-            // chat's record gone, ends the stream with a sentence.
-            if (!canRead(moduleId) || !findOwned(moduleId, followed)) {
-              close()
-              deliver({ type: 'error', message: 'This conversation is no longer readable by this module.' })
-              return
-            }
-            deliver(redactFrame(frame))
-          },
-        )
-        // A follow undone before the join answered drops what it set up.
-        if (!open) handle.dispose()
+        if (owned) {
+          start(owned)
+        } else {
+          pendingFollows.add(retry)
+          ensureListening()
+        }
         return close
       },
 
-      async transcript(ref) {
+      transcript: (ref) => transcriptFor(moduleId, ref),
+
+      async reply(ref, turnId) {
         if (!canRead(moduleId)) return missing(moduleId, 'conversation:read')
-        if (!isRef(ref)) return notOwned(ref)
-        const owned = findOwned(moduleId, ref)
-        if (!owned) return notOwned(ref)
-        if (!owned.workingRoot) {
-          return failure('workspace_folder_missing', `Workspace "${ref.workspaceId}" has no project folder.`)
+        if (turnId !== undefined && (typeof turnId !== 'string' || !turnId.trim())) {
+          return failure('invalid_input', '"turnId" must be a turn id when provided.')
         }
-        const read = await deps.runtime
-          .readTranscript({ workspaceRoot: owned.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId })
-          .catch((error: unknown): ConversationTranscriptResult => ({
-            ok: false,
-            message: error instanceof Error ? error.message : String(error),
-          }))
-        if (!read.ok) return failure('runtime_refused', read.message)
-        return { ok: true, events: read.events.map(redactEvent) }
+        const read = await transcriptFor(moduleId, ref)
+        if (!read.ok) return read
+        return replyOf(read.events, turnId)
       },
 
       list(filter) {
@@ -1006,6 +1139,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     subscribe: (moduleId, ref, cb) => serviceFor(moduleId).subscribe(ref, cb),
     follow: (moduleId, ref, options, onFrame) => serviceFor(moduleId).follow(ref, options, onFrame),
     transcript: (moduleId, ref) => serviceFor(moduleId).transcript(ref),
+    reply: (moduleId, ref, turnId) => serviceFor(moduleId).reply(ref, turnId),
     list: (moduleId, filter) => serviceFor(moduleId).list(filter),
     watch: (moduleId, filter, cb) => serviceFor(moduleId).watch(filter, cb),
   }
@@ -1015,6 +1149,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     registry,
     dispose() {
       for (const close of [...follows]) close()
+      pendingFollows.clear()
       subscribers.clear()
       watchers.clear()
       unsubscribeWorkspaces?.()

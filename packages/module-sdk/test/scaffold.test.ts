@@ -14,10 +14,12 @@
 // repository's own react, @types and esbuild, symlinked, plus this SDK
 // transpiled from source into @sprintengine/module-sdk.
 //
-// Also: the scaffolder's refusals, the placeholder and tarball handling, and
-// the two copies that must not drift — the dev-loop scripts shipped in both the
-// skill and the templates, and the smoke test's stand-ins for every value the
-// host-provided `./ui` and `./surface` entries export.
+// Also: the scaffolder's refusals, the placeholder and tarball handling, the
+// copies that must not drift — the dev-loop scripts shipped in both the skill
+// and the templates, and the build scripts the parts share with the templates —
+// projects composed from parts (`parts`, `addModuleParts`) running the same
+// loop, a rebuild of unchanged code leaving the manifest alone, and the skill
+// pointer that validate holds to the skill.
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -28,6 +30,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -42,8 +45,11 @@ import { checkHostApiCompatibility } from '../src/host-api.js'
 import { validateThirdPartyModuleManifest } from '../src/manifest-validate.js'
 import { validateMarketplacePluginAuthoringManifest } from '../src/plugin-manifest.js'
 import {
+  addModuleParts,
   EXTENSION_BUILDER_SKILL_DIRS,
   EXTENSION_BUILDER_SKILL_ID,
+  EXTENSION_BUILDER_SKILL_POINTER_DIR,
+  listModuleParts,
   listModuleTemplates,
   sanitizeDisplayText,
   scaffoldModuleProject,
@@ -97,11 +103,40 @@ function sharedNodeModules(root: string): string {
       version: SDK_VERSION,
       type: 'module',
       main: './dist/index.js',
-      exports: { '.': sub('index'), './signing': sub('signing'), './ui': sub('ui'), './surface': sub('surface') },
+      exports: {
+        '.': sub('index'),
+        './signing': sub('signing'),
+        './ui': sub('ui'),
+        './surface': sub('surface'),
+        './testing': sub('testing'),
+        './testing/kit': sub('testing-kit'),
+        './testing/register': sub('testing-register'),
+      },
       bin: { 'sprintengine-module': './dist/cli.js' },
     }),
   )
   return nodeModules
+}
+
+/** Type-check a project against this package's source, tests included. */
+function typecheckAgainstSource(dir: string, env: NodeJS.ProcessEnv): void {
+  writeFileSync(
+    join(dir, 'tsconfig.scaffold-test.json'),
+    JSON.stringify({
+      extends: './tsconfig.json',
+      compilerOptions: {
+        paths: {
+          '@sprintengine/module-sdk': [join(SDK, 'src/index.ts')],
+          '@sprintengine/module-sdk/ui': [join(SDK, 'src/ui.ts')],
+          '@sprintengine/module-sdk/surface': [join(SDK, 'src/surface.ts')],
+          '@sprintengine/module-sdk/testing': [join(SDK, 'src/testing.ts')],
+          '@sprintengine/module-sdk/testing/kit': [join(SDK, 'src/testing-kit.ts')],
+        },
+      },
+    }),
+  )
+  run(join(REPO, 'node_modules/.bin/tsc'), ['-p', 'tsconfig.scaffold-test.json'], dir, env)
+  rmSync(join(dir, 'tsconfig.scaffold-test.json'))
 }
 
 test('scaffold', async () => {
@@ -138,16 +173,24 @@ test('scaffold', async () => {
         `skills/${EXTENSION_BUILDER_SKILL_ID}/scripts/${script} must equal templates/_shared/scripts/${script}`,
       )
     }
-    const fake = readFileSync(join(TEMPLATES, '_shared', 'test', 'host-kit-fake.mjs'), 'utf8')
-    for (const entry of ['ui.ts', 'surface.ts']) {
-      const values = [...readFileSync(join(SDK, 'src', entry), 'utf8').matchAll(/^export const (\w+)/gm)].map(
-        (m) => m[1],
-      )
-      assert.ok(values.length > 0)
-      for (const name of values) {
-        assert.ok(fake.includes(`export const ${name} =`), `host-kit-fake.mjs has no stand-in for ${entry}'s ${name}`)
+    // A part that adds an entry builds it exactly as the templates do.
+    const partScripts = (id: string) =>
+      (
+        JSON.parse(readFileSync(join(TEMPLATES, '_parts', id, 'part.json'), 'utf8')) as {
+          scripts: Record<string, string>
+        }
+      ).scripts
+    const companionScripts = (
+      JSON.parse(readFileSync(join(TEMPLATES, 'chat-companion', 'package.json'), 'utf8')) as {
+        scripts: Record<string, string>
       }
-    }
+    ).scripts
+    assert.equal(partScripts('renderer')['build:renderer'], companionScripts['build:renderer'])
+    assert.equal(partScripts('main')['build:main'], companionScripts['build:main'])
+    assert.deepEqual(
+      listModuleParts(TEMPLATES).map((part) => part.id),
+      ['main', 'mcp', 'settings', 'door'],
+    )
 
     // ── Refusals ───────────────────────────────────────────────────────────────
     const base = { templateId: 'blank', displayName: 'X', sdkVersion: SDK_VERSION, templatesRoot: TEMPLATES }
@@ -213,6 +256,7 @@ test('scaffold', async () => {
         'CLAUDE.md',
         '.gitignore',
         'test/smoke.test.mjs',
+        'test/module.test.ts',
         'scripts/dev-install.mjs',
         'scripts/validate.mjs',
       ]) {
@@ -221,6 +265,11 @@ test('scaffold', async () => {
       for (const skillDir of EXTENSION_BUILDER_SKILL_DIRS) {
         assert.ok(files.includes(`${skillDir}/SKILL.md`), `${template.id}: the skill is not vendored into ${skillDir}`)
       }
+      assert.deepEqual(
+        files.filter((path) => path.startsWith(`${EXTENSION_BUILDER_SKILL_POINTER_DIR}/`)),
+        [`${EXTENSION_BUILDER_SKILL_POINTER_DIR}/SKILL.md`],
+        `${template.id}: Claude Code's folder holds a pointer, not a second copy`,
+      )
       for (const file of files.filter((path) => !path.includes('/skills/'))) {
         const text = readFileSync(join(dir, file), 'utf8')
         assert.ok(!/\{\{\w+\}\}/.test(text), `${template.id}: ${file} still has a placeholder`)
@@ -268,25 +317,20 @@ test('scaffold', async () => {
         assert.ok(pkg.scripts[script], `${template.id}: package.json has no "${script}" script`)
       }
 
-      // Type-check against this package's source.
-      writeFileSync(
-        join(dir, 'tsconfig.scaffold-test.json'),
-        JSON.stringify({
-          extends: './tsconfig.json',
-          compilerOptions: {
-            paths: {
-              '@sprintengine/module-sdk': [join(SDK, 'src/index.ts')],
-              '@sprintengine/module-sdk/ui': [join(SDK, 'src/ui.ts')],
-              '@sprintengine/module-sdk/surface': [join(SDK, 'src/surface.ts')],
-            },
-          },
-        }),
-      )
-      run(join(REPO, 'node_modules/.bin/tsc'), ['-p', 'tsconfig.scaffold-test.json'], dir, env)
-      rmSync(join(dir, 'tsconfig.scaffold-test.json'))
+      typecheckAgainstSource(dir, env)
 
       // The project's own dev loop.
       run('npm', ['run', 'build', '--silent'], dir, env)
+      // A rebuild of unchanged code leaves the committed manifest as it was.
+      const manifestPath = join(dir, 'module/manifest.json')
+      const firstBuild = { text: readFileSync(manifestPath, 'utf8'), mtime: statSync(manifestPath).mtimeMs }
+      assert.match(run('npm', ['run', 'build'], dir, env), /already describes module\//)
+      assert.equal(
+        readFileSync(manifestPath, 'utf8'),
+        firstBuild.text,
+        `${template.id}: a rebuild rewrote the manifest`,
+      )
+      assert.equal(statSync(manifestPath).mtimeMs, firstBuild.mtime, `${template.id}: a rebuild touched the manifest`)
       // A build leaves the manifest describing module/ exactly, so the
       // repository can be committed and installed from GitHub as it stands.
       const built = JSON.parse(readFileSync(join(dir, 'module/manifest.json'), 'utf8'))
@@ -326,6 +370,81 @@ test('scaffold', async () => {
       )
       run('npm', ['run', 'validate', '--silent'], dir, env)
     }
+
+    // ── Projects composed from parts ───────────────────────────────────────────
+    // Every part on the smallest template, and a door added to a project with
+    // no renderer at all: each runs the whole loop, its parts' tests included.
+    const composed = join(work, 'composed')
+    const scaffoldedComposed = await scaffoldModuleProject({
+      dir: composed,
+      templateId: 'blank',
+      id: 'demo-composed',
+      displayName: 'Composed',
+      sdkVersion: SDK_VERSION,
+      templatesRoot: TEMPLATES,
+      skillsRoot: join(SDK, 'skills'),
+      parts: ['door', 'mcp', 'settings', 'main'],
+    })
+    assert.ok(scaffoldedComposed.ok, scaffoldedComposed.ok ? '' : scaffoldedComposed.message)
+    const toolsDir = join(work, 'mcp-tools')
+    const addedDoor = await addModuleParts({ dir: toolsDir, parts: ['door'], templatesRoot: TEMPLATES })
+    assert.ok(addedDoor.ok, addedDoor.ok ? '' : addedDoor.message)
+    assert.deepEqual(addedDoor.ok && addedDoor.added, ['renderer', 'door'])
+    for (const dir of [composed, toolsDir]) {
+      typecheckAgainstSource(dir, env)
+      run('npm', ['run', 'build', '--silent'], dir, env)
+      run('npm', ['test', '--silent'], dir, env)
+      run('npm', ['run', 'validate', '--silent'], dir, env)
+    }
+    const composedTests = run('npm', ['test'], composed, env)
+    for (const name of [
+      'the door renders',
+      'an agent can ask which extension this is',
+      'the section shows what was saved',
+    ]) {
+      assert.ok(composedTests.includes(name), `the composed project ran "${name}"`)
+    }
+    assert.ok(composedTests.includes('door "demo-composed-door" renders'), 'the smoke test rendered the added door')
+    const refusedPart = await scaffoldModuleProject({
+      ...base,
+      id: 'twice',
+      dir: join(work, 'twice'),
+      templateId: 'chat-companion',
+      parts: ['main'],
+    })
+    assert.equal(!refusedPart.ok && refusedPart.code, 'already_present')
+    assert.equal(existsSync(join(work, 'twice')), false, 'a refused part leaves no half-made project')
+
+    // ── The skill pointer is held to the skill ────────────────────────────────
+    const pointerPath = join(composed, EXTENSION_BUILDER_SKILL_POINTER_DIR, 'SKILL.md')
+    const pointer = readFileSync(pointerPath, 'utf8')
+    writeFileSync(pointerPath, pointer.replace(/^description: .*$/m, 'description: Something else.'))
+    const drifted = spawnSync('npm', ['run', 'validate', '--silent'], { cwd: composed, env, encoding: 'utf8' })
+    assert.equal(drifted.status, 1)
+    assert.match(drifted.stderr, /must carry the name and description/)
+    writeFileSync(pointerPath, pointer)
+
+    // ── The smoke test catches what the old recording host let through ───────
+    // A door that throws while rendering, and a service used without its
+    // permission, both fail `npm test` now.
+    const doorPath = join(composed, 'src', 'door.tsx')
+    const door = readFileSync(doorPath, 'utf8')
+    writeFileSync(doorPath, door.replace('function Door() {', "function Door() {\n  throw new Error('door exploded')"))
+    run('npm', ['run', 'build', '--silent'], composed, env)
+    const exploded = spawnSync('node', ['--test', 'test/smoke.test.mjs'], { cwd: composed, env, encoding: 'utf8' })
+    assert.notEqual(exploded.status, 0)
+    assert.match(exploded.stdout, /door "demo-composed-door" renders[\s\S]*door exploded/)
+    writeFileSync(doorPath, door)
+    const manifestPath = join(composed, 'module', 'manifest.json')
+    const declared = readFileSync(manifestPath, 'utf8')
+    const withoutBridge = JSON.parse(declared) as { permissions: string[] }
+    withoutBridge.permissions = withoutBridge.permissions.filter((permission) => permission !== 'module:bridge')
+    writeFileSync(manifestPath, JSON.stringify(withoutBridge, null, 2))
+    run('npm', ['run', 'build', '--silent'], composed, env)
+    const unbridged = spawnSync('node', ['--test', 'test/smoke.test.mjs'], { cwd: composed, env, encoding: 'utf8' })
+    assert.notEqual(unbridged.status, 0)
+    assert.match(unbridged.stdout, /needs the "module:bridge" permission/)
+    writeFileSync(manifestPath, declared)
 
     // ── A local SDK tarball instead of the npm release ─────────────────────────
     const tarball = join(work, 'sprintengine-module-sdk-9.9.9.tgz')

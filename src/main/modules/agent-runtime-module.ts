@@ -3,10 +3,12 @@ import type { StudioPlatform } from '../../server/platform/platform'
 import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
+import type { TextGenerationSettings } from '../../shared/text-generation/contract'
 import {
   AgentControlPlaneToken,
   AgentLaunchServiceToken,
   AgentLaunchSettingsToken,
+  ChatRuntimesToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
   ConversationLaunchServiceToken,
@@ -14,11 +16,14 @@ import {
   ConversationRuntimeToken,
   GitHubModuleServiceToken,
   GitHubTokenStoreToken,
+  ModuleAppStateToken,
   ModuleSecretsServiceToken,
   ModuleStorageToken,
   SprintEngineAuthToken,
   TerminalRuntimeToken,
+  TextGenerationModuleServiceToken,
   WorkspaceContextToken,
+  WorkspaceGitInfoToken,
   WorkspaceRegistryToken,
   WorkspaceServiceToken,
   WorkspaceSyncServiceToken,
@@ -29,9 +34,20 @@ import { ConversationSessionApi } from '../conversation-session-api'
 import { createModuleGitHubRegistry } from '../module-host/module-github'
 import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
+import { moduleAppStateMirrorFor } from '../module-host/module-app-state-mirror'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
+import { createModuleTextGenerationRegistry } from '../text-generation/module-text-generation'
+import { createChatRuntimeLister } from '../module-host/module-chat-runtimes'
+import { detectAgentCliAvailability } from '../cli-availability'
+import { listPluginRegistryEntries } from '../plugin-registry-instance'
+import { generateHeadlessText } from '../text-generation/text-generation-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
+import { provideHostDataServices } from './host-data-services'
+import { CLOSED_WORKSPACE_HISTORY_FILE, createClosedWorkspaceHistory } from './closed-workspace-history'
+import { readFolderGitInfo } from '../workspace-git-info'
+import { toModuleWorkspaceView, type ModuleWorkspaceView } from '../../shared/modules/workspace-view'
+import { join } from 'node:path'
 
 // Resolves a module id to the capability permissions it declared in its
 // manifest (disclosure list). The companion registry uses it to gate `attach`
@@ -89,6 +105,11 @@ export function createAgentRuntimeModule(
     getModulePermissions: ModulePermissionsResolver
     /** Where module storage and module secrets live, and what the secrets are sealed with. */
     platform: Pick<StudioPlatform, 'paths' | 'secrets'>
+    /**
+     * The person's text-generation setting (the core's mirror of it), which a
+     * module's prompt that names no runtime answers on. Absent, Claude Code.
+     */
+    getTextGenerationSettings?: () => TextGenerationSettings | null
   },
 ): CapabilityModule {
   const { paths, secrets: cipher } = options.platform
@@ -111,15 +132,49 @@ export function createAgentRuntimeModule(
         createModuleWorkspaceService({ workspaceSync: services.workspaceSyncService }),
       )
       // Read-only workspace context (id → root/name/mode), read from the same
-      // registry the create flow writes.
+      // registry the create flow writes. Closing a workspace deletes its
+      // record, so the history of closed ones is kept beside it, fed by every
+      // registry change, for `list({ includeClosed: true })`.
+      const workspaceViews = (): ModuleWorkspaceView[] =>
+        services.workspaceSyncService
+          .getSnapshot()
+          .state.workspaces.map((workspace) => toModuleWorkspaceView(workspace))
+          .filter((view): view is ModuleWorkspaceView => view !== null)
+      const closedWorkspaces = createClosedWorkspaceHistory({
+        filePath: join(paths.dataDir(), CLOSED_WORKSPACE_HISTORY_FILE),
+      })
+      closedWorkspaces.observe(workspaceViews())
+      const stopObservingWorkspaces = services.workspaceSyncService.subscribeEvents(() =>
+        closedWorkspaces.observe(workspaceViews()),
+      )
+      host.onShutdown(() => stopObservingWorkspaces())
       host.provideService(WorkspaceContextToken, () =>
         createModuleWorkspaceContextService({
           getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
+          listClosedWorkspaces: () => closedWorkspaces.list(),
         }),
       )
+      // A workspace's branch and remotes, for the module host's
+      // getWorkspaceGitInfo: git asked from the workspace's own folder (the
+      // worktree, for a worktree-backed one).
+      host.provideService(WorkspaceGitInfoToken, () => ({
+        read: async (workspaceId: string) => {
+          const workspace = services.workspaceSyncService
+            .getSnapshot()
+            .state.workspaces.find((entry) => entry.id === workspaceId)
+          if (!workspace) {
+            return { ok: false, code: 'unknown_workspace', message: `No open workspace "${workspaceId}".` } as const
+          }
+          return readFolderGitInfo(workspace.folderPath ?? null)
+        },
+      }))
       // Per-module, per-workspace JSON storage (SDK getModuleStorage): the
       // host owns file placement so modules stop inventing locations.
       host.provideService(ModuleStorageToken, () => createModuleStorageRegistry({ userDataDir: () => paths.dataDir() }))
+      // Every module's app-level state (its Settings section's values), as the
+      // windows last pushed it: what `MainHost.getModuleAppState` reads, so
+      // `entry.main` sees the person's settings with no window open.
+      host.provideService(ModuleAppStateToken, () => moduleAppStateMirrorFor(paths.dataDir()))
       // Companion agents: workspace-bound background agents driven through the
       // shared conversation runtime. The core service is app-internal
       // (first-party consumers require it directly); the moduleId-scoped
@@ -165,6 +220,35 @@ export function createAgentRuntimeModule(
       })
       host.provideService(ConversationModuleServiceToken, () => conversations.registry)
       host.onShutdown(() => conversations.dispose())
+      // The chat runtimes behind MainHost.listChatRuntimes: the rows the
+      // window's own list gives a module's renderer half, built from the
+      // plugin registry, the availability probe (cached, as a launch reads
+      // it), the chat model catalog and the person's last choice.
+      host.provideService(ChatRuntimesToken, () =>
+        createChatRuntimeLister({
+          listClis: () => listPluginRegistryEntries(),
+          availability: () =>
+            detectAgentCliAvailability({
+              cliRuntimes: effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes,
+            }),
+          modelCatalog: services.conversationModelCatalog,
+          lastSelectedCli: () => effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).lastSelectedCli,
+        }),
+      )
+      // Headless text generation behind the SDK's getTextGenerationService:
+      // one prompt answered by the person's own agent CLI (the one they chose
+      // for Studio's text generation, by default), checked per call against
+      // `agents:generate`, in a lane per module.
+      host.provideService(TextGenerationModuleServiceToken, () =>
+        createModuleTextGenerationRegistry({
+          getModulePermissions: options.getModulePermissions,
+          generate: (request) => generateHeadlessText(request),
+          getCliRuntimes: () => effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes,
+          ...(options.getTextGenerationSettings
+            ? { getTextGenerationSettings: options.getTextGenerationSettings }
+            : {}),
+        }),
+      )
       // The brokers behind the SDK's getSecretsService and getGitHubService: a
       // module stores a secret and spends it on the origins it named, or calls
       // the signed-in person's GitHub, without ever holding the value itself.
@@ -180,6 +264,11 @@ export function createAgentRuntimeModule(
         getModulePermissions: options.getModulePermissions,
       })
       host.provideService(GitHubModuleServiceToken, () => github.registry)
+      // The Backlog, usage and activity services (host-data-services.ts).
+      provideHostDataServices(host, services, {
+        getModulePermissions: options.getModulePermissions,
+        dataDir: () => paths.dataDir(),
+      })
     },
   }
 }

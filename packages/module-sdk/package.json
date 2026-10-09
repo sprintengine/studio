@@ -38,6 +38,18 @@
     "./scaffold": {
       "types": "./dist/scaffold.d.ts",
       "default": "./dist/scaffold.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./testing/kit": {
+      "types": "./dist/testing-kit.d.ts",
+      "default": "./dist/testing-kit.js"
+    },
+    "./testing/register": {
+      "types": "./dist/testing-register.d.ts",
+      "default": "./dist/testing-register.js"
     }
   },
   "bin": {

@@ -215,3 +215,82 @@ test('railBadges', async () => {
 
   console.log('railBadges.test.ts: ok')
 })
+
+test("a module's notify rows badge only that module's own door rows", () => {
+  const moduleRow = (over: Partial<AppNotification>): AppNotification => ({
+    id: over.id ?? 'm',
+    timestamp: '2026-10-09T10:00:00.000Z',
+    level: 'info',
+    source: 'module',
+    title: 't',
+    message: '',
+    read: false,
+    sourceModule: { id: 'acme.radar', name: 'PR Radar' },
+    ...over,
+  })
+  const doors = new Map([
+    ['acme.radar', 'acme.radar'],
+    ['acme.insights', 'acme.insights'],
+    ['acme.insights-usage', 'acme.insights'],
+  ])
+  const moduleRows = { doors, fallbackByModule: {} }
+
+  assert.equal(
+    extensionsRowOfNotification(moduleRow({ extensionsRow: 'acme.radar' }), undefined, moduleRows),
+    'acme.radar',
+  )
+  assert.equal(
+    extensionsRowOfNotification(moduleRow({ extensionsRow: 'acme.insights' }), undefined, moduleRows),
+    'acme.radar',
+    "a target on another module's door falls back to the module's own one door",
+  )
+  assert.equal(
+    extensionsRowOfNotification(moduleRow({}), undefined, moduleRows),
+    'acme.radar',
+    'one door takes its news',
+  )
+  const insights = moduleRow({ sourceModule: { id: 'acme.insights', name: 'Insights' } })
+  assert.equal(extensionsRowOfNotification(insights, undefined, moduleRows), null, 'two doors and no claim: no row')
+  assert.equal(
+    extensionsRowOfNotification(insights, undefined, { doors, fallbackByModule: { 'acme.insights': 'acme.insights' } }),
+    'acme.insights',
+    'the badge claimed the untargeted news',
+  )
+  assert.equal(
+    extensionsRowOfNotification(moduleRow({ extensionsRow: 'design' })),
+    null,
+    'a module row never lands on a fixed row',
+  )
+  assert.equal(
+    extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'acme.radar' }), undefined, moduleRows),
+    'plugins',
+    "a core row cannot be pointed at a module's door",
+  )
+
+  const byRow = unreadByExtensionsRow(
+    [moduleRow({ id: 'a', extensionsRow: 'acme.radar' }), moduleRow({ id: 'b', read: true }), note({ id: 'c' })],
+    undefined,
+    moduleRows,
+  )
+  assert.deepEqual(Object.fromEntries(Object.entries(byRow).map(([row, rows]) => [row, rows.map((n) => n.id)])), {
+    design: [],
+    plugins: ['c'],
+    skills: [],
+    'acme.radar': ['a'],
+    'acme.insights': [],
+    'acme.insights-usage': [],
+  })
+})
+
+function note(over: Partial<AppNotification>): AppNotification {
+  return {
+    id: over.id ?? 'n',
+    timestamp: '2026-09-07T10:00:00.000Z',
+    level: 'info',
+    source: 'marketplace',
+    title: 't',
+    message: 'm',
+    read: false,
+    ...over,
+  }
+}

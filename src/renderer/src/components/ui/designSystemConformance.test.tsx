@@ -1823,7 +1823,6 @@ test('designSystemConformance', async () => {
       'components/settings/ProjectKnowledgeList.tsx',
       'components/settings/ProviderSettingsTab.tsx',
       'components/settings/SettingsPanel.tsx',
-      'modules/voice-dictation/VoiceDictationSettingsSection.tsx',
     ]
 
     /**

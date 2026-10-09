@@ -3,6 +3,7 @@
 // module host's contribution point (MainHost.registerMcpTools), and the SDK
 // mirror in packages/module-sdk — src/shared cannot import src/main (TS6307).
 
+import { STUDIO_BUILT_IN_TOOLSETS } from '../../../packages/studio-protocol/src/public'
 import { isRecord } from '../records'
 
 /** Re-exported: this module was the entry point importers already had. */
@@ -55,10 +56,47 @@ export type McpConnectionMetadata = {
   deviceName?: string
   /** Tailscale node name of the calling peer; absent when whois could not resolve it. */
   peerNode?: string
+  /**
+   * Whether the identity above was PROVEN rather than declared: true when the
+   * connection presented the launch token Studio issued that agent's launch,
+   * or when the tailnet transport established the paired device. A module
+   * tool's handler always receives it set (the gateway fills in `false`); it
+   * is optional here because core transports write metadata before that.
+   */
+  verified?: boolean
 }
 
 export type McpConnectionContext = {
   metadata: McpConnectionMetadata
+}
+
+// ── Tool names ───────────────────────────────────────────────────────────────
+
+/**
+ * The name an MCP client files a tool under. Several clients take no dot in a
+ * tool name and write `backlog_list` for `backlog.list`, so a module's
+ * `backlog_list` and the core's `backlog.list` are one name to the agent.
+ * Collisions are judged on this form, never on the raw strings.
+ */
+export function mcpToolWireName(name: string): string {
+  return name.trim().toLowerCase().replace(/\./gu, '_')
+}
+
+/**
+ * The core gateway tool a module tool name would collide with, or null. A
+ * collision is the same wire name as a core tool, or a name in one of the
+ * shell's own families (`browser_*`, `canvas.*`, …).
+ */
+export function coreMcpToolConflict(name: string, coreToolNames: Iterable<string>): string | null {
+  const wire = mcpToolWireName(name)
+  for (const core of coreToolNames) {
+    if (mcpToolWireName(core) === wire) return core
+  }
+  // The desktop shell's own toolsets (the browser, the canvas, the editor, diff
+  // tours, terminals) are reserved whether or not the window has offered them
+  // yet: a module tool in one would shadow a shell tool once it connects.
+  const family = STUDIO_BUILT_IN_TOOLSETS.find((candidate) => wire.startsWith(`${candidate}_`))
+  return family ? `${family}.*` : null
 }
 
 // Result shaping every gateway tool needs, core-owned and module-owned alike.

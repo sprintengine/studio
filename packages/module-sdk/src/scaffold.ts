@@ -56,20 +56,76 @@ export type ScaffoldModuleOptions = {
   ideaMarkdown?: string
   /** Scaffold into a folder that already has files in it, overwriting the ones the template writes. */
   force?: boolean
+  /**
+   * Parts to add on top of the template (`listModuleParts`): `main`, `mcp`,
+   * `settings`, `door`. The same as running `sprintengine-module add` on the
+   * new project.
+   */
+  parts?: readonly string[]
 }
 
 export type ScaffoldModuleResult =
-  | { ok: true; files: string[] }
-  | { ok: false; code: 'unknown_template' | 'invalid_id' | 'dir_not_empty' | 'io_error'; message: string }
+  | {
+      ok: true
+      files: string[]
+      /** Steps left to do by hand, when a part could not wire itself in. */
+      notes?: string[]
+    }
+  | {
+      ok: false
+      code: 'unknown_template' | 'invalid_id' | 'dir_not_empty' | 'io_error' | 'unknown_part' | 'already_present'
+      message: string
+    }
 
 /** The skill every scaffolded project carries, for whichever agent works on it. */
 export const EXTENSION_BUILDER_SKILL_ID = 'sprintengine-extension-builder'
 
-/** Where a project gets the skill: one copy per agent family's skill directory. */
+/**
+ * Where a project keeps the skill: one full copy, in the harness-neutral
+ * skills folder every agent CLI can read.
+ */
+export const EXTENSION_BUILDER_SKILL_DIR = `.agents/skills/${EXTENSION_BUILDER_SKILL_ID}`
+
+/**
+ * Where Claude Code looks for project skills. It holds a pointer to
+ * `EXTENSION_BUILDER_SKILL_DIR`, not a second copy: the same name and
+ * description (so the skill triggers on the same requests) and a body that
+ * sends the agent to the real one. Two copies drifted; one cannot.
+ */
+export const EXTENSION_BUILDER_SKILL_POINTER_DIR = `.claude/skills/${EXTENSION_BUILDER_SKILL_ID}`
+
+/** Both folders a project has the skill in, each with a SKILL.md: the pointer first, then the copy. */
 export const EXTENSION_BUILDER_SKILL_DIRS: readonly string[] = [
-  `.claude/skills/${EXTENSION_BUILDER_SKILL_ID}`,
-  `.agents/skills/${EXTENSION_BUILDER_SKILL_ID}`,
+  EXTENSION_BUILDER_SKILL_POINTER_DIR,
+  EXTENSION_BUILDER_SKILL_DIR,
 ]
+
+/** The line that marks a SKILL.md as the pointer; the project's validate script looks for it. */
+export const EXTENSION_BUILDER_SKILL_POINTER_MARK = '<!-- sprintengine-module: skill pointer -->'
+
+/**
+ * The pointer SKILL.md for `EXTENSION_BUILDER_SKILL_POINTER_DIR`, made from
+ * the skill's own SKILL.md: its front matter, verbatim, and a body naming the
+ * real one.
+ */
+export function extensionBuilderSkillPointer(skillMarkdown: string): string {
+  const frontMatter = /^---\r?\n[\s\S]*?\r?\n---/.exec(skillMarkdown)?.[0]
+  if (!frontMatter) throw new Error(`The ${EXTENSION_BUILDER_SKILL_ID} SKILL.md has no front matter.`)
+  return `${frontMatter}
+
+${EXTENSION_BUILDER_SKILL_POINTER_MARK}
+
+# ${EXTENSION_BUILDER_SKILL_ID}
+
+This project keeps the skill once, where every agent CLI can read it:
+\`${EXTENSION_BUILDER_SKILL_DIR}/SKILL.md\`. Read that file now and follow it.
+Its \`references/\` and \`scripts/\` paths are relative to
+\`${EXTENSION_BUILDER_SKILL_DIR}/\`.
+
+Edit the skill there, not here. \`npm run validate\` fails when this file's
+name or description no longer matches that one's.
+`
+}
 
 const SHARED_TEMPLATE_DIR = '_shared'
 const TEMPLATE_MANIFEST = 'template.json'
@@ -262,6 +318,21 @@ export async function scaffoldModuleProject(options: ScaffoldModuleOptions): Pro
     }
   }
 
+  // Parts are checked against the template before anything is written, so a
+  // part the template already has fails the scaffold rather than leaving half
+  // a project behind.
+  if (options.parts && options.parts.length > 0) {
+    try {
+      const templateManifest = JSON.parse(readFileSync(join(templateDir, 'module', 'manifest.json'), 'utf8')) as {
+        entry?: Record<string, string>
+      }
+      const planned = planParts(join(templatesRoot, PARTS_DIR), options.parts, templateManifest.entry ?? {})
+      if (!planned.ok) return planned
+    } catch (error) {
+      return { ok: false, code: 'io_error', message: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const dir = resolve(options.dir)
   try {
     if (existsSync(dir)) {
@@ -327,12 +398,33 @@ export async function scaffoldModuleProject(options: ScaffoldModuleOptions): Pro
       written.push(target)
     }
 
-    for (const skillTarget of EXTENSION_BUILDER_SKILL_DIRS) {
-      for (const path of walkFiles(skillDir)) {
-        write(`${skillTarget}/${path}`, readFileSync(join(skillDir, path)))
+    // The skill once, where every agent CLI reads it, and a pointer to it
+    // where Claude Code looks.
+    for (const path of walkFiles(skillDir)) {
+      write(`${EXTENSION_BUILDER_SKILL_DIR}/${path}`, readFileSync(join(skillDir, path)))
+    }
+    write(
+      `${EXTENSION_BUILDER_SKILL_POINTER_DIR}/SKILL.md`,
+      extensionBuilderSkillPointer(readFileSync(join(skillDir, 'SKILL.md'), 'utf8')),
+    )
+
+    if (options.parts && options.parts.length > 0) {
+      const added = await addModuleParts({ dir, parts: options.parts, templatesRoot, force: options.force })
+      // The parts were planned against the template before anything was
+      // written, so what is left to fail here is the file system.
+      if (!added.ok) {
+        return {
+          ok: false,
+          code: added.code === 'unknown_part' || added.code === 'already_present' ? added.code : 'io_error',
+          message: added.message,
+        }
+      }
+      return {
+        ok: true,
+        files: [...new Set([...written, ...added.files])].sort(),
+        ...(added.notes.length > 0 ? { notes: added.notes } : {}),
       }
     }
-
     return { ok: true, files: written.sort() }
   } catch (error) {
     return {
@@ -347,4 +439,398 @@ function dependOnTarball(packageJson: string, spec: string): string {
   const pkg = JSON.parse(packageJson) as { devDependencies?: Record<string, string> }
   pkg.devDependencies = { ...pkg.devDependencies, [SDK_PACKAGE]: spec }
   return `${JSON.stringify(pkg, null, 2)}\n`
+}
+
+// ── Parts: what `init --with` and `sprintengine-module add` put in a project ──
+//
+// A part is a folder under `templates/_parts/<id>/` holding `part.json` and
+// the files it adds (placeholders as in a template). Adding one copies its
+// files, merges its entry, permissions and `dependsOn` into
+// module/manifest.json and plugin.json, adds its scripts and devDependencies
+// to package.json, and wires its registration into the entry it extends by
+// inserting an import and a call at the top of `registerRenderer` /
+// `registerMain`. A part that needs an entry the project lacks brings that
+// entry first (`renderer`, `main`).
+//
+// The build composes on its own: `npm run build` runs `build:renderer` and
+// `build:main` when they exist, so adding `main` is adding its script.
+
+const PARTS_DIR = '_parts'
+const PART_MANIFEST = 'part.json'
+// The order parts are listed and applied in.
+const PART_ORDER = ['renderer', 'main', 'mcp', 'settings', 'door']
+const ENTRY_KINDS = ['renderer', 'main'] as const
+type EntryKind = (typeof ENTRY_KINDS)[number]
+const ENTRY_SOURCES: Record<EntryKind, string> = { renderer: 'src/renderer.tsx', main: 'src/main.ts' }
+const ENTRY_FUNCTIONS: Record<EntryKind, string> = { renderer: 'registerRenderer', main: 'registerMain' }
+
+export type ModulePartInfo = {
+  id: string
+  title: string
+  summary: string
+  /** The entries it needs (`renderer`, `main`); added first when the project lacks them. */
+  requires: string[]
+  /** The permissions it adds to the manifest. */
+  permissions: string[]
+}
+
+type PartDefinition = ModulePartInfo & {
+  hidden: boolean
+  /** Added only when the project has a renderer (the main entry's bridge). */
+  permissionsWithRenderer: string[]
+  dependsOn: string[]
+  entry: Partial<Record<EntryKind, string>>
+  scripts: Record<string, string>
+  devDependencies: Record<string, string>
+  register?: { in: EntryKind; import: string; call: string }
+  dir: string
+}
+
+export type ModulePartsFailureCode = 'unknown_part' | 'already_present' | 'not_a_project' | 'file_exists' | 'io_error'
+
+export type AddModulePartsOptions = {
+  /** The project folder: the one holding package.json and module/manifest.json. */
+  dir: string
+  /** Part ids (`listModuleParts`). */
+  parts: readonly string[]
+  /** Defaults to the `templates/` folder beside this package's `dist/`. */
+  templatesRoot?: string
+  /** Write over files the parts add that already exist. */
+  force?: boolean
+}
+
+export type AddModulePartsResult =
+  | {
+      ok: true
+      /** The parts added, in order, including entries a part needed. */
+      added: string[]
+      /** Every file written or changed, relative to the project. */
+      files: string[]
+      /** Steps left to do by hand (a registration that could not be wired in). */
+      notes: string[]
+    }
+  | { ok: false; code: ModulePartsFailureCode; message: string }
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === 'string')
+  )
+}
+
+function readPart(dir: string): PartDefinition {
+  const path = join(dir, PART_MANIFEST)
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+  const strings = (value: unknown): value is string[] =>
+    Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+  const register = raw.register as PartDefinition['register'] | undefined
+  if (
+    raw.id !== basename(dir) ||
+    typeof raw.title !== 'string' ||
+    typeof raw.summary !== 'string' ||
+    !strings(raw.requires) ||
+    !strings(raw.permissions) ||
+    !strings(raw.dependsOn) ||
+    !isStringRecord(raw.entry) ||
+    !isStringRecord(raw.scripts) ||
+    !isStringRecord(raw.devDependencies) ||
+    (raw.permissionsWithRenderer !== undefined && !strings(raw.permissionsWithRenderer)) ||
+    (register !== undefined &&
+      (!ENTRY_KINDS.includes(register.in) || typeof register.import !== 'string' || typeof register.call !== 'string'))
+  ) {
+    // Parts ship inside this package; a malformed one is a packaging bug.
+    throw new Error(
+      `${path} must be { id (the folder name), title, summary, requires, permissions, dependsOn, entry, scripts, devDependencies, register? }.`,
+    )
+  }
+  return {
+    id: raw.id,
+    title: raw.title,
+    summary: raw.summary,
+    requires: [...raw.requires],
+    permissions: [...raw.permissions],
+    hidden: raw.hidden === true,
+    permissionsWithRenderer: strings(raw.permissionsWithRenderer) ? [...raw.permissionsWithRenderer] : [],
+    dependsOn: [...raw.dependsOn],
+    entry: { ...raw.entry },
+    scripts: { ...raw.scripts },
+    devDependencies: { ...raw.devDependencies },
+    ...(register ? { register: { ...register } } : {}),
+    dir,
+  }
+}
+
+function readParts(partsRoot: string): Map<string, PartDefinition> {
+  const parts = new Map<string, PartDefinition>()
+  if (!existsSync(partsRoot)) return parts
+  for (const entry of readdirSync(partsRoot, { withFileTypes: true })) {
+    if (entry.isDirectory() && existsSync(join(partsRoot, entry.name, PART_MANIFEST))) {
+      parts.set(entry.name, readPart(join(partsRoot, entry.name)))
+    }
+  }
+  return parts
+}
+
+const partRank = (id: string): number => {
+  const index = PART_ORDER.indexOf(id)
+  return index === -1 ? PART_ORDER.length : index
+}
+
+/** The parts `init --with` and `sprintengine-module add` take, in order. */
+export function listModuleParts(templatesRoot: string = defaultTemplatesRoot()): ModulePartInfo[] {
+  return [...readParts(join(templatesRoot, PARTS_DIR)).values()]
+    .filter((part) => !part.hidden)
+    .sort((a, b) => partRank(a.id) - partRank(b.id) || a.id.localeCompare(b.id))
+    .map(({ id, title, summary, requires, permissions }) => ({ id, title, summary, requires, permissions }))
+}
+
+/**
+ * The parts to apply, in order, for `requested` on a project whose manifest
+ * declares `entry`: each requested part after the entries it needs. Refuses an
+ * unknown part, and an entry part the project already has.
+ */
+function planParts(
+  partsRoot: string,
+  requested: readonly string[],
+  entry: Record<string, string>,
+): { ok: true; plan: PartDefinition[] } | { ok: false; code: 'unknown_part' | 'already_present'; message: string } {
+  const parts = readParts(partsRoot)
+  const known = [...parts.values()].filter((part) => !part.hidden).map((part) => part.id)
+  const plan: PartDefinition[] = []
+  const has = new Set<string>(ENTRY_KINDS.filter((kind) => entry[kind] !== undefined))
+  const add = (id: string, explicit: boolean): string | null => {
+    const part = parts.get(id)
+    if (!part || (explicit && part.hidden)) return `There is no "${id}" part; the parts are ${known.join(', ')}.`
+    if (plan.includes(part)) return null
+    const entryKinds = ENTRY_KINDS.filter((kind) => part.entry[kind] !== undefined)
+    if (entryKinds.some((kind) => has.has(kind))) {
+      // An entry the project has already satisfies a part that needs it.
+      if (!explicit) return null
+      const kind = entryKinds[0]!
+      return `The project already has entry.${kind} (${ENTRY_SOURCES[kind]}); the "${id}" part adds one.`
+    }
+    for (const needed of part.requires) {
+      if (has.has(needed)) continue
+      const problem = add(needed, false)
+      if (problem) return problem
+    }
+    plan.push(part)
+    for (const kind of entryKinds) has.add(kind)
+    return null
+  }
+  const ordered = [...new Set(requested)].sort((a, b) => partRank(a) - partRank(b))
+  for (const id of ordered) {
+    const problem = add(id, true)
+    if (problem) {
+      return {
+        ok: false,
+        code: parts.has(id) && !parts.get(id)!.hidden ? 'already_present' : 'unknown_part',
+        message: problem,
+      }
+    }
+  }
+  return { ok: true, plan }
+}
+
+/**
+ * Insert `importLine` after the source's imports and `call` as the first
+ * statement of its `registerRenderer` / `registerMain`. Null when the entry
+ * function is not one of the shapes the templates write.
+ */
+function wireRegistration(source: string, kind: EntryKind, importLine: string, call: string): string | null {
+  const fn = ENTRY_FUNCTIONS[kind]
+  const opening = [
+    new RegExp(
+      `^export\\s+(?:const|let)\\s+${fn}\\b[^=\\n]*=\\s*(?:async\\s*)?\\(\\s*(\\w*)[^)]*\\)\\s*(?::[^=\\n]*)?=>\\s*\\{[ \\t]*$`,
+      'm',
+    ),
+    new RegExp(`^export\\s+(?:async\\s+)?function\\s+${fn}\\s*\\(\\s*(\\w*)[^)]*\\)[^{\\n]*\\{[ \\t]*$`, 'm'),
+  ]
+    .map((pattern) => pattern.exec(source))
+    .find((match) => match !== null)
+  if (!opening) return null
+  const lines = source.split('\n')
+  const openingLine = source.slice(0, opening.index).split('\n').length - 1
+  // An entry that took no host yet (the renderer part's) is given one.
+  const param = opening[1] || 'host'
+  if (!opening[1]) lines[openingLine] = lines[openingLine]!.replace(/\(\s*\)/, '(host)')
+  const nextLine = lines.slice(openingLine + 1).find((line) => line.trim() !== '')
+  const nextIndent = /^\s*/.exec(nextLine ?? '')?.[0] ?? ''
+  const indent = nextIndent.length > 0 && nextLine?.trim() !== '}' ? nextIndent : '  '
+  lines.splice(openingLine + 1, 0, `${indent}${call.replace(/\bhost\b/g, param)}`)
+
+  if (!lines.some((line) => line.trim() === importLine.trim())) {
+    let lastImport = -1
+    let inImport = false
+    for (const [index, line] of lines.entries()) {
+      const text = line.trim()
+      if (inImport) {
+        if (/from\s+['"][^'"]+['"]/.test(text)) {
+          inImport = false
+          lastImport = index
+        }
+        continue
+      }
+      if (text.startsWith('import ')) {
+        if (/from\s+['"][^'"]+['"]|^import\s+['"]/.test(text)) lastImport = index
+        else inImport = true
+        continue
+      }
+      if (text === '' || text.startsWith('//') || text.startsWith('/*') || text.startsWith('*')) continue
+      break
+    }
+    lines.splice(lastImport + 1, 0, ...(lastImport === -1 ? [importLine, ''] : [importLine]))
+  }
+  return lines.join('\n')
+}
+
+function displayNameOf(manifest: { id: string; displayName?: unknown }): string {
+  return (
+    (typeof manifest.displayName === 'string' && sanitizeDisplayText(manifest.displayName)) ||
+    displayNameFromId(manifest.id)
+  )
+}
+
+// `additions` the record lacks, placed before `anchor` (the `build` script, so
+// a part's `build:main` sits beside `build:renderer`), the rest kept in order.
+function withScripts(record: Record<string, string> | undefined, additions: Record<string, string>, anchor: string) {
+  const missing = Object.entries(additions).filter(([key]) => record?.[key] === undefined)
+  const entries = Object.entries(record ?? {})
+  const at = entries.findIndex(([key]) => key === anchor)
+  entries.splice(at === -1 ? entries.length : at, 0, ...missing)
+  return Object.fromEntries(entries)
+}
+
+function unionInto(list: string[] | undefined, additions: readonly string[]): string[] {
+  const result = [...(list ?? [])]
+  for (const entry of additions) if (!result.includes(entry)) result.push(entry)
+  return result
+}
+
+/**
+ * Add parts to an existing extension project: their files, manifest entry,
+ * permissions and `dependsOn`, build scripts and devDependencies, and the
+ * call that registers them. Expected failures come back as a result, never a
+ * throw.
+ */
+export async function addModuleParts(options: AddModulePartsOptions): Promise<AddModulePartsResult> {
+  const dir = resolve(options.dir)
+  const templatesRoot = resolve(options.templatesRoot ?? defaultTemplatesRoot())
+  const manifestPath = join(dir, 'module', 'manifest.json')
+  const pluginPath = join(dir, 'plugin.json')
+  const packagePath = join(dir, 'package.json')
+  if (!existsSync(manifestPath) || !existsSync(packagePath)) {
+    return {
+      ok: false,
+      code: 'not_a_project',
+      message: `${dir} is not an extension project: it needs package.json and module/manifest.json.`,
+    }
+  }
+  try {
+    type Manifest = {
+      id: string
+      displayName?: string
+      publisher?: string
+      permissions?: string[]
+      dependsOn?: string[]
+      entry?: Record<string, string>
+    }
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest
+    const plugin = existsSync(pluginPath)
+      ? (JSON.parse(readFileSync(pluginPath, 'utf8')) as { permissions?: string[]; dependsOn?: string[] })
+      : null
+    const pkg = JSON.parse(readFileSync(packagePath, 'utf8')) as {
+      scripts?: Record<string, string>
+      devDependencies?: Record<string, string>
+    }
+    const planned = planParts(join(templatesRoot, PARTS_DIR), options.parts, manifest.entry ?? {})
+    if (!planned.ok) return planned
+
+    const values: Record<string, string> = {
+      id: manifest.id,
+      displayName: displayNameOf(manifest),
+      publisher: sanitizeDisplayText(manifest.publisher ?? '') || DEFAULT_PUBLISHER,
+    }
+    // Every file first, so a clash leaves the project untouched.
+    const copies: Array<{ relativePath: string; source: string }> = []
+    for (const part of planned.plan) {
+      for (const path of walkFiles(part.dir)) {
+        if (path === PART_MANIFEST) continue
+        copies.push({ relativePath: projectPath(path), source: join(part.dir, path) })
+      }
+    }
+    const clashes = copies.filter((copy) => existsSync(join(dir, copy.relativePath))).map((copy) => copy.relativePath)
+    if (clashes.length > 0 && !options.force) {
+      return {
+        ok: false,
+        code: 'file_exists',
+        message: `These files are already in the project: ${clashes.join(', ')}. Move them aside, or add with force to write over them.`,
+      }
+    }
+
+    const files = new Set<string>()
+    for (const copy of copies) {
+      const target = join(dir, copy.relativePath)
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, fillPlaceholders(readFileSync(copy.source, 'utf8'), values))
+      files.add(copy.relativePath)
+    }
+
+    const notes: string[] = []
+    for (const part of planned.plan) {
+      manifest.entry = { ...manifest.entry, ...part.entry }
+      manifest.permissions = unionInto(manifest.permissions, part.permissions)
+      if (part.dependsOn.length > 0) manifest.dependsOn = unionInto(manifest.dependsOn, part.dependsOn)
+      pkg.scripts = withScripts(pkg.scripts, part.scripts, 'build')
+      pkg.devDependencies = { ...part.devDependencies, ...pkg.devDependencies }
+      if (part.register) {
+        const sourcePath = ENTRY_SOURCES[part.register.in]
+        const absolute = join(dir, sourcePath)
+        const wired = existsSync(absolute)
+          ? wireRegistration(readFileSync(absolute, 'utf8'), part.register.in, part.register.import, part.register.call)
+          : null
+        if (wired === null) {
+          notes.push(
+            `Call ${part.register.call} from ${ENTRY_FUNCTIONS[part.register.in]} in ${sourcePath}, ` +
+              `after \`${part.register.import}\`; it could not be wired in automatically.`,
+          )
+        } else {
+          writeFileSync(absolute, wired)
+          files.add(sourcePath)
+        }
+      }
+    }
+    // The bridge permission follows the renderer, whichever was added first.
+    if (manifest.entry?.renderer) {
+      for (const part of planned.plan) {
+        manifest.permissions = unionInto(manifest.permissions, part.permissionsWithRenderer)
+      }
+    }
+    pkg.devDependencies = Object.fromEntries(
+      Object.entries(pkg.devDependencies ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+    )
+
+    const writeJson = (path: string, value: unknown, relativePath: string): void => {
+      writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
+      files.add(relativePath)
+    }
+    writeJson(manifestPath, manifest, 'module/manifest.json')
+    if (plugin) {
+      // The bundle discloses what the module declares, or an install refuses it.
+      plugin.permissions = unionInto(plugin.permissions, manifest.permissions ?? [])
+      if (manifest.dependsOn) plugin.dependsOn = unionInto(plugin.dependsOn, manifest.dependsOn)
+      writeJson(pluginPath, plugin, 'plugin.json')
+    }
+    writeJson(packagePath, pkg, 'package.json')
+
+    return { ok: true, added: planned.plan.map((part) => part.id), files: [...files].sort(), notes }
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'io_error',
+      message: `Could not add ${options.parts.join(', ')} to ${dir}: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
 }

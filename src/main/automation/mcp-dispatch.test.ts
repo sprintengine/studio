@@ -153,6 +153,7 @@ test('a launch token proves which conversation a connection is, whatever it decl
     assert.equal(context.metadata.agentId, 'chat-1')
     assert.equal(context.metadata.workspaceId, 'ws-1')
     assert.equal(context.metadata.cliId, 'codex')
+    assert.equal(context.metadata.verified, true, 'the token proved the identity')
     assert.deepEqual(gatewayConversation(context), { workspaceId: 'ws-1', agentId: 'chat-1' })
     // A second launch's token cannot move it.
     const other = issueGatewayLaunchToken({ workspaceId: 'ws-1', agentId: 'chat-2' })
@@ -174,6 +175,7 @@ test('without a live token a declared agent is only a claim: no conversation is 
   const declaredOnly = freshContext()
   await gateway.dispatch(CONNECT, { agentId: 'chat-1', workspaceId: 'ws-1' }, declaredOnly)
   assert.equal(declaredOnly.metadata.agentId, 'chat-1')
+  assert.notEqual(declaredOnly.metadata.verified, true, 'a declaration proves nothing')
   assert.equal(gatewayConversation(declaredOnly), undefined)
   const revoked = freshContext()
   const token = issueGatewayLaunchToken({ workspaceId: 'ws-1', agentId: 'chat-1' })
@@ -183,9 +185,10 @@ test('without a live token a declared agent is only a claim: no conversation is 
   // A paired device never takes a launch's identity, whatever it presents.
   const live = issueGatewayLaunchToken({ workspaceId: 'ws-1', agentId: 'chat-1' })
   try {
-    const remote: McpConnectionContext = { metadata: { kind: 'remote-tailnet', deviceId: 'dev-1' } }
+    const remote: McpConnectionContext = { metadata: { kind: 'remote-tailnet', deviceId: 'dev-1', verified: true } }
     await gateway.dispatch(CONNECT, { launchToken: live }, remote)
     assert.equal(remote.metadata.kind, 'remote-tailnet')
+    assert.equal(remote.metadata.verified, true, "the transport's proof survives a declaration")
     assert.equal(gatewayConversation(remote), undefined)
   } finally {
     revokeGatewayLaunchToken(live)

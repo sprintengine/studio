@@ -36,7 +36,9 @@ export type {
   ConversationToolOutputPayload,
   ConversationToolStartedPayload,
   ConversationToolStatus,
+  ConversationTurnCompletedPayload,
   ConversationTurnRetryingPayload,
+  ConversationTurnUsage,
 } from '../../packages/conversation-protocol/src/public'
 // Who a `user_message` came from when it was not the person (`origin`).
 export { readConversationMessageOrigin } from '../../packages/conversation-protocol/src/public'

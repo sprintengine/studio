@@ -40,12 +40,18 @@
 // session, external-URL opening) are disclosed today only by the legacy broad
 // scope. `ipc:invoke` remains valid for existing manifests and means "any
 // internal API, including everything above"; the consent UI flags it as broad.
-// It is also the declared gate for the renderer→module-main bridge
+//
+// ## The own-module bridge
+//
+// `module:bridge` is the narrow gate for the renderer→module-main bridge
 // (`RendererHost.invoke` → the module's own `registerIpc` channels; see
-// shared/modules/bridge.ts) — the one place the main-side dispatcher actually
-// checks the declaration, because the bridge is the highest-capability surface
-// and the check is one map lookup. A module that only uses the bridge still
-// declares `ipc:invoke`.
+// shared/modules/bridge.ts): a module's window code talking to its own
+// background code, and nothing of the app's. It is the one place the main-side
+// dispatcher actually checks a declaration, because the bridge is the
+// highest-capability surface and the check is one map lookup. `ipc:invoke`
+// still opens the bridge, so a manifest written before the split keeps
+// working, but a module that only bridges to itself declares `module:bridge`
+// and its consent prompt stops saying "any of the app's internal APIs".
 // Unknown scopes stay forward-compatible: they validate structurally and are
 // surfaced verbatim as unrecognized.
 
@@ -59,6 +65,10 @@ export type CapabilityPermission =
   | 'ipc:workspace-write'
   | 'ipc:settings'
   | 'ipc:invoke'
+  // The renderer→own-main bridge alone (`RendererHost.invoke` to the module's
+  // own `registerIpc` channels), split out of `ipc:invoke`. Checked by the
+  // bridge dispatcher, which also still accepts `ipc:invoke`.
+  | 'module:bridge'
   // Backlog-focused disclosure scopes. Finer-grained than the broad
   // `ipc:workspace-read`/`ipc:workspace-write` areas Backlog reads and writes
   // already fall under; additive disclosure for modules built around Backlog.
@@ -74,6 +84,10 @@ export type CapabilityPermission =
   // companion service DOES check this one explicitly at attach time (there is no
   // shared runtime gate to inherit), so a module must declare it to attach.
   | 'agents:companion'
+  // Send prompts to the person's own agent CLI in the background and read the
+  // answers, with no chat, workspace or tools (the SDK's text generation
+  // service). Checked on every call.
+  | 'agents:generate'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: workspace sidecar `modules/<id>/` or per-user app data).
   | 'storage'
@@ -88,6 +102,10 @@ export type CapabilityPermission =
   // Without it a module's chats go no looser than `auto`, whatever it asks
   // for; checked on every create and every preset switch.
   | 'conversation:bypass'
+  // Open a chat with a prompt drafted in its composer, for the person to read
+  // and send (`RendererHost.openChat` without `send`). Checked on every call;
+  // sending the prompt still needs `conversation:operate`.
+  | 'chat:draft'
   // Store secrets the host sends only to origins the module named with them,
   // never handing the value back to module code.
   | 'secrets'
@@ -97,6 +115,16 @@ export type CapabilityPermission =
   // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`),
   // which agents in any workspace can then call.
   | 'mcp:tools'
+  // ── Backlog, usage and activity services ──
+  // Read token usage of every agent session on this machine — Studio's chats
+  // and the agent CLIs' own session logs — through the SDK's usage service.
+  // Checked on every call.
+  | 'usage:read'
+  // Read every Studio chat on this machine, read-only: chat summaries and the
+  // person's prompts with the end of each reply (never tool output), through
+  // the SDK's activity service. Checked on every call, and flagged as broad in
+  // the consent prompt.
+  | 'conversation:read-all'
   // Extensible: unknown scopes validate structurally but are flagged as unknown
   // so the consent UI can warn rather than silently grant something opaque.
   | (string & {})
@@ -111,18 +139,25 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'ipc:workspace-write',
   'ipc:settings',
   'ipc:invoke',
+  // The renderer→own-main bridge, split out of `ipc:invoke`.
+  'module:bridge',
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
   'scheduled-agents.manage',
   'agents:companion',
+  'agents:generate',
   'storage',
   'conversation:read',
   'conversation:operate',
   'conversation:bypass',
+  'chat:draft',
   'secrets',
   'github',
   'mcp:tools',
+  // Backlog, usage and activity services.
+  'usage:read',
+  'conversation:read-all',
 ]
 
 // Plain, sentence-case descriptions for the install/trust consent prompt.
@@ -138,37 +173,132 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'ipc:workspace-write': "Create and change workspaces, files, and tasks through the app's APIs",
   'ipc:settings': 'Read and change app settings and integrations',
   'ipc:invoke': "Call any of the app's internal APIs, including its own background code (broad scope)",
+  'module:bridge': 'Let its window code talk to its own background code',
   'backlog.read': 'Read Backlog item details and source content',
-  'backlog.write': 'Change Backlog item status, links, and metadata',
+  'backlog.write': 'Change Backlog item status, triage, links, and metadata, and create new items',
   'backlog.link.open': 'Open links and targets attached to Backlog items',
   'scheduled-agents.manage': 'Schedule agents of its own that start a chat on a timer',
   'agents:companion': 'Run its own background agents inside the workspace',
+  'agents:generate': 'Send prompts to your AI models in the background, without opening a chat',
   storage: 'Save its own data in the workspace folder and app data',
   'conversation:read': 'Read the chats it started, including everything the agent says in them',
   'conversation:operate': 'Start chats with agents, send them messages, and stop them',
   'conversation:bypass': 'Let the agents in its chats edit files and run commands without asking you first',
+  'chat:draft': 'Open a chat with a message drafted for you to read and send',
   secrets: 'Store API keys and send them to the sites it names (the key is never shown back to the extension)',
   github: 'Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension)',
   'mcp:tools': 'Add tools that agents in your workspaces can call',
+  'usage:read': 'See token usage and cost of every agent session on this machine',
+  'conversation:read-all': 'Read every chat on this machine, including what you and the agents wrote (broad scope)',
 }
 
 export function isKnownCapabilityPermission(value: string): boolean {
   return KNOWN_CAPABILITY_PERMISSIONS.includes(value)
 }
 
-// The legacy everything-scope, and the declared gate for the renderer→module-
-// main bridge (RendererHost.invoke). Kept valid so existing manifests do not
-// break, and the consent UI flags it as broad; authors whose module does not
-// use the bridge should declare the `ipc:*` tiers that match what they
-// actually touch instead.
+// The legacy everything-scope. Kept valid so existing manifests do not break
+// (it still opens the renderer→module-main bridge), and the consent UI flags
+// it as broad; authors declare `module:bridge` for the bridge and the `ipc:*`
+// tiers that match what they actually touch instead.
+//
+// `conversation:read-all` is broad for the other reason: it reads what the
+// person wrote in every chat, so the prompt marks it the same way.
+const BROAD_CAPABILITY_PERMISSIONS: ReadonlySet<string> = new Set(['ipc:invoke', 'conversation:read-all'])
+
 export function isBroadCapabilityPermission(value: string): boolean {
-  return value === 'ipc:invoke'
+  return BROAD_CAPABILITY_PERMISSIONS.has(value)
 }
 
 // A human-readable line for the consent prompt; unknown scopes are surfaced
 // verbatim with a marker so the user can see exactly what was requested.
 export function describeCapabilityPermission(permission: string): string {
   return PERMISSION_DESCRIPTIONS[permission] ?? `Unrecognized capability: ${permission}`
+}
+
+// ── At-a-glance access ───────────────────────────────────────────────────────
+//
+// The sentences above are what the full disclosure reads. A list of extensions
+// cannot afford a sentence per scope, so every known scope also has a short
+// title, and the ones that warrant a second look before trusting — reach past
+// the module's own data, act as the person, or run unattended — are marked
+// `care` with a "why" of six words or fewer. Settings → Extensions draws one
+// warning glyph per `care` scope on a row and lists the titles on hover; its
+// details and trust review show the why. An unrecognized scope always needs
+// care: nothing here can say what it grants.
+//
+// Disclosure phrasing only, like the sentences: what the module says it does,
+// never what the app prevents.
+
+export type CapabilityAccess = {
+  /** Short sentence-case title: "Reads your home folder". */
+  title: string
+  /** Warrants a second look before trusting. */
+  care: boolean
+  /** Six words or fewer, for `care` scopes only. */
+  why?: string
+}
+
+const CAPABILITY_ACCESS: Record<string, CapabilityAccess> = {
+  // Needs care.
+  'filesystem:read-home': { title: 'Reads your home folder', care: true, why: 'Including other apps’ data' },
+  'filesystem:write-workspace': {
+    title: 'Edits files in your projects',
+    care: true,
+    why: 'Creates and changes project files',
+  },
+  'process:spawn': { title: 'Runs programs on this machine', care: true, why: 'Any command, with your access' },
+  network: { title: 'Uses the network', care: true, why: 'Can send data to any site' },
+  'ipc:settings': { title: 'Changes your settings', care: true, why: 'Including integrations and extensions' },
+  'ipc:invoke': { title: 'Broad access to Studio', care: true, why: 'Calls any internal API' },
+  'conversation:operate': { title: 'Runs chats with your agents', care: true, why: 'Starts, messages and stops chats' },
+  'conversation:bypass': {
+    title: 'Lets agents act without asking',
+    care: true,
+    why: 'Edits and commands without approval',
+  },
+  'conversation:read-all': { title: 'Reads all your chats', care: true, why: 'Every chat on this machine' },
+  github: { title: 'Uses your GitHub sign-in', care: true, why: 'Calls GitHub as you' },
+  secrets: { title: 'Holds your API keys', care: true, why: 'Sends them to sites it names' },
+  'usage:read': { title: 'Sees your usage and cost', care: true, why: 'Every agent session on this machine' },
+  // Standard.
+  'filesystem:read-workspace': { title: 'Reads your projects', care: false },
+  'ipc:workspace-read': { title: 'Sees workspace and git state', care: false },
+  'ipc:workspace-write': { title: 'Changes workspaces and tasks', care: false },
+  'module:bridge': { title: 'Talks to its own background code', care: false },
+  'backlog.read': { title: 'Reads the Backlog', care: false },
+  'backlog.write': { title: 'Changes Backlog items', care: false },
+  'backlog.link.open': { title: 'Opens Backlog links', care: false },
+  'scheduled-agents.manage': { title: 'Schedules agents', care: false },
+  'agents:companion': { title: 'Runs background agents', care: false },
+  'agents:generate': { title: 'Sends prompts to your models', care: false },
+  storage: { title: 'Saves its own data', care: false },
+  'conversation:read': { title: 'Reads its own chats', care: false },
+  'chat:draft': { title: 'Drafts messages for you to send', care: false },
+  'mcp:tools': { title: 'Adds tools for agents', care: false },
+}
+
+/** The short title, care flag and why for one scope; unknown scopes always need care. */
+export function capabilityAccess(permission: string): CapabilityAccess {
+  return (
+    CAPABILITY_ACCESS[permission] ?? {
+      title: `Unrecognized: ${permission}`,
+      care: true,
+      why: 'Not a scope this version knows',
+    }
+  )
+}
+
+/** A manifest's scopes split into those that need care and the rest, each in declared order. */
+export function partitionCapabilityAccess(permissions: readonly string[]): {
+  care: string[]
+  standard: string[]
+} {
+  const care: string[] = []
+  const standard: string[] = []
+  for (const permission of permissions) {
+    ;(capabilityAccess(permission).care ? care : standard).push(permission)
+  }
+  return { care, standard }
 }
 
 // The permissions validator lives in the published SDK so the app and the

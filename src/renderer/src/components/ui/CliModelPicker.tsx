@@ -18,12 +18,14 @@ import {
   buildModelFamilies,
   familyForModel,
   meaningfulModelId,
+  normalizeCliRuntimeOptions,
   type CliModelFamily,
   type CliRuntimeOption,
+  type CliRuntimePickerOption,
 } from './cliRuntimeCatalog'
 import type { AgentCli } from '../../types/workspace'
 
-export type { CliRuntimeOption } from './cliRuntimeCatalog'
+export type { CliRuntimeOption, CliRuntimePickerOption } from './cliRuntimeCatalog'
 
 // The model popover: a provider rail down the left, search over a flat list of
 // models on the right. It replaces a grouped listbox whose every CLI header and
@@ -830,7 +832,13 @@ export function CliModelPickerButton({
   onSelectModel,
 }: {
   ariaLabel: string
-  options: CliRuntimeOption[]
+  /**
+   * The runtimes to offer: the app's catalog rows, or a module's
+   * `host.listChatRuntimes()` result passed straight through — the two shapes
+   * may even be mixed. Chat runtimes this machine lacks are left out unless
+   * one is the current `cli` (`normalizeCliRuntimeOptions`).
+   */
+  options: ReadonlyArray<CliRuntimePickerOption>
   cli: AgentCli
   effectiveModelFor: (cli: AgentCli) => string | undefined
   /**
@@ -853,9 +861,10 @@ export function CliModelPickerButton({
   onSelectModel: (cli: AgentCli, model: string | null) => void
 }): JSX.Element | null {
   const [open, setOpen] = React.useState(false)
-  const resolvedOptions = options.some((option) => option.value === cli)
-    ? options
-    : [{ value: cli, label: cli }, ...options]
+  const resolvedOptions = React.useMemo(() => {
+    const normalized = normalizeCliRuntimeOptions(options, cli)
+    return normalized.some((option) => option.value === cli) ? normalized : [{ value: cli, label: cli }, ...normalized]
+  }, [options, cli])
   const selected = resolvedOptions.find((option) => option.value === cli) ?? resolvedOptions[0]
   if (!selected) return null
 

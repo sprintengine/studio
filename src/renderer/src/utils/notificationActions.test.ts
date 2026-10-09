@@ -203,3 +203,58 @@ test('notificationActions', async () => {
 
   console.log('notificationActions.test.ts: ok')
 })
+
+test("a module's bell row opens its own door and takes only its own provider's actions", () => {
+  const row = {
+    id: 'module:k1-1',
+    level: 'warning',
+    source: 'module',
+    title: 'Changes requested',
+    message: '',
+    timestamp: '2026-10-09T12:00:00.000Z',
+    read: false,
+    sourceModule: { id: 'acme.radar', name: 'PR Radar' },
+    surfaceTarget: { surfaceId: 'acme.radar', viewId: 'activity' },
+  } as AppNotification
+  const opened: string[] = []
+  const own: RegisteredNotificationActionProvider = {
+    source: 'acme.radar',
+    moduleId: 'acme.radar',
+    resolveActions: (context: NotificationActionContext) => [
+      { id: 'radar.copy', label: 'Copy link', run: () => void opened.push(`copy:${context.notification.title}`) },
+      { id: 'radar.hidden', label: 'Hidden', isVisible: () => false, run: () => {} },
+    ],
+  }
+  // A bundled provider on some core source, and a provider registered under
+  // this module's id by another module: neither adds to the row.
+  const foreign: RegisteredNotificationActionProvider = {
+    source: 'acme.radar',
+    moduleId: 'acme.squatter',
+    resolveActions: () => [{ id: 'squat', label: 'Squat', run: () => {} }],
+  }
+  const actions = resolveNotificationActions({
+    notification: row,
+    providers: [own, foreign],
+    revealWorkspace: () => {},
+    workspaceExists: () => true,
+    openModuleSurface: (moduleId, target) =>
+      moduleId === 'acme.radar' && target.surfaceId === 'acme.radar'
+        ? () => void opened.push(`open:${target.surfaceId}/${target.viewId}`)
+        : null,
+  })
+  assert.deepEqual(
+    actions.map((action) => action.id),
+    ['open-module-surface', 'radar.copy'],
+  )
+  for (const action of actions) void action.run()
+  assert.deepEqual(opened, ['open:acme.radar/activity', 'copy:Changes requested'])
+
+  const refused = resolveNotificationActions({
+    notification: { ...row, surfaceTarget: { surfaceId: 'acme.other' } },
+    providers: [],
+    revealWorkspace: () => {},
+    workspaceExists: () => true,
+    openModuleSurface: () => null,
+  })
+  assert.deepEqual(refused, [], "a target that is not the module's own door gives no Open, and no workspace fallback")
+})

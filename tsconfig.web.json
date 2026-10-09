@@ -36,7 +36,10 @@
     "packages/module-sdk/src/plugin-manifest.ts",
     "packages/module-sdk/src/host-api.ts",
     "packages/module-sdk/src/conversation.ts",
-    "packages/module-sdk/src/brokers.ts"
+    "packages/module-sdk/src/brokers.ts",
+    "packages/module-sdk/src/backlog.ts",
+    "packages/module-sdk/src/activity.ts",
+    "packages/module-sdk/src/services.ts"
   ],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
   "compilerOptions": {

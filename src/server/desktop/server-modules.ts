@@ -8,12 +8,19 @@ import { ScheduledAgentsServiceToken } from '../../main/module-host/service-toke
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from '../../main/modules/agent-runtime-module'
 import { createBundledMainModules } from '../../main/modules'
 import { applyHostApiGate } from '../../main/modules/host-api-gate'
-import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from '../../main/modules/third-party-main-loader'
+import {
+  encodeThirdPartyLaunchSession,
+  planThirdPartyMainModules,
+  readThirdPartyMainLaunchSnapshot,
+  recordThirdPartyMainLaunchReport,
+  type ThirdPartyLaunchSessionWire,
+} from '../../main/modules/third-party-main-loader'
 import { readModuleTrustContextSync } from '../../main/modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModulesSync } from '../../main/modules/user-module-registry'
 import type { ScheduledAgentsService } from '../../main/scheduled-agents/service'
 import { activeForChannel } from '../../shared/modules/dev-only'
 import { MODULE_EVENTS_CHANNEL } from '../../shared/modules/events'
+import { MODULE_NOTIFICATIONS_CHANNEL } from '../../shared/modules/notifications'
 import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../shared/modules/resolve'
 import type { StudioCore } from '../core/studio-core'
@@ -36,6 +43,8 @@ export type ServerModules = {
   /** Register every enabled module. Called once the gateway exists. */
   load(registry: Pick<IpcMain, 'handle' | 'removeHandler'> | unknown, gateway: StudioGateway): void
   mcpTools(): ReadonlyArray<McpToolContribution>
+  /** Which third-party main halves loaded here, and their tools; the shell's Settings asks for it. */
+  thirdPartyLaunchSession(): ThirdPartyLaunchSessionWire
   isEnabled(moduleId: string): boolean
   scheduledAgents(): ScheduledAgentsService | null
   applyEnablement(overrides: Record<string, boolean>): Promise<{ ok: true } | { ok: false; message: string }>
@@ -107,17 +116,27 @@ export function createServerModules(deps: {
           conversationLaunchService: core.conversationLaunchService,
           conversationModelCatalog: core.conversationModelCatalog,
         },
-        { getModulePermissions: (moduleId) => byId.get(moduleId)?.permissions, platform },
+        {
+          getModulePermissions: (moduleId) => byId.get(moduleId)?.permissions,
+          platform,
+          getTextGenerationSettings: () => core.textGenerationSettings.get(),
+        },
       )
       load = loadMainModules({
         ipcMain: registry as IpcMain,
         modules: [agentRuntime, ...bundled, ...thirdParty.modules],
         overrides,
         moduleRoots: thirdParty.moduleRoots,
+        moduleVerifiedFiles: thirdParty.verifiedFiles,
         ineligible: thirdParty.ineligible,
         launchErrors: thirdParty.launchErrors,
         deliverModuleEvent: (event) => platform.clients.publish(MODULE_EVENTS_CHANNEL, event),
+        deliverModuleNotification: (notification) =>
+          platform.clients.publish(MODULE_NOTIFICATIONS_CHANNEL, notification),
         electronMain: false,
+        // A module tool that would shadow one of the gateway's own is refused
+        // at registration, naming the tool it collides with.
+        coreMcpToolNames: () => nextGateway.coreToolNames(),
       })
       manifests = [
         agentRuntime.manifest,
@@ -134,6 +153,8 @@ export function createServerModules(deps: {
       }
     },
     mcpTools: () => load?.kernel.mcpToolRegistrations() ?? [],
+    thirdPartyLaunchSession: () =>
+      encodeThirdPartyLaunchSession(readThirdPartyMainLaunchSnapshot(), load?.kernel.mcpToolRegistrations() ?? []),
     isEnabled: (moduleId) => enabled.has(moduleId),
     scheduledAgents: () => load?.kernel.hostFor('@host').getService(ScheduledAgentsServiceToken) ?? null,
     async applyEnablement(overrides) {

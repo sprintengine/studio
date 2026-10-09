@@ -8,6 +8,7 @@ import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowHidden, sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowCanvasColor, getWindowMaterial } from './window-material-store'
 import { appDocumentUrl, guardPrivilegedWindow } from './privileged-window-navigation'
+import { allowAppWindowPermissionRequest } from './app-window-permissions'
 
 /** The one document every window made here may show; see privileged-window-navigation.ts. */
 function appDocument(): URL {
@@ -299,14 +300,15 @@ export function createMainWindow({
 
   guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
-  // Voice dictation captures the microphone via getUserMedia in the renderer.
-  // Grant the media permission for this trusted first-party window (the OS still
-  // gates the actual microphone via its own permission prompt on macOS/Windows).
-  const grantMedia = (permission: string): boolean => permission === 'media' || permission === 'audioCapture'
-  win.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(grantMedia(permission))
+  // Refuse the microphone, the camera and everything else; let a tab recording's
+  // display capture through to its own handler. Without these handlers the
+  // session would grant every request. See app-window-permissions.ts.
+  win.webContents.session.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    callback(allowAppWindowPermissionRequest(permission, details as { mediaTypes?: string[] }))
   })
-  win.webContents.session.setPermissionCheckHandler((_webContents, permission) => grantMedia(permission))
+  // Checks (`navigator.permissions.query`, device labels) are all refused; a
+  // display capture does not depend on one.
+  win.webContents.session.setPermissionCheckHandler(() => false)
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     const url = new URL(process.env['ELECTRON_RENDERER_URL'])

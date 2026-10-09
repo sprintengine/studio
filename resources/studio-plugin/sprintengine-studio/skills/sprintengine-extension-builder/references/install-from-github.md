@@ -18,7 +18,10 @@ module/dist/…            the BUILT bundles — commit them
 
 The template is set up for this: its `.gitignore` keeps `module/dist/`, and
 `npm run build` ends by recording `files` in `module/manifest.json` (and
-signing it when `~/.sprintengine/keys/<id>.key` exists). So:
+signing it when `~/.sprintengine/keys/<id>.key` exists). It writes the manifest
+only when the files changed, so after a rebuild of unchanged code git shows
+nothing, and after a real change it shows the manifest beside `module/dist/`,
+which is what to commit together. So:
 
 1. Build: `npm run check`, or `npm run dev:install` to try it in Studio first
    (or `npx sprintengine-module sign module --key …` to sign by hand). Each

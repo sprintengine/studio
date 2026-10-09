@@ -19,13 +19,19 @@ import type { AgentState, CliPermissionPreset } from '../../../types/workspace'
 // can read them first. Sent, it is the chat's first message — the same one-shot
 // a launcher's prompt is.
 //
+// A module may title the chat (`name`) and key it (`dedupeKey`): asking again
+// with a key this module already opened a chat under in that workspace brings
+// that chat to the front instead of opening a second, and touches nothing in
+// it — its draft is the person's by then, and nothing is sent.
+//
 // Store-free, so every refusal is tested without a window: WorkspaceManager
 // hands in the reads and writes.
 
 export type WorkspaceChatOpenerDeps = {
-  getWorkspace: (
-    workspaceId: string,
-  ) => { folderPath: string | null | undefined; agents: Record<string, { name: string }> } | null
+  getWorkspace: (workspaceId: string) => {
+    folderPath: string | null | undefined
+    agents: Record<string, { name: string; ownerModuleId?: string; moduleChatKey?: string }>
+  } | null
   /** The CLI the person last chose, the one a chat runs on when the module names none. */
   lastSelectedCli: () => string | null | undefined
   /** The permission preset the person's launches of this CLI run on. */
@@ -47,11 +53,36 @@ function refuse(code: Exclude<ModuleOpenChatResult, { ok: true }>['code'], messa
   return { ok: false, code, message }
 }
 
+// A title fits a tab and a sidebar row; a key is an id, not a document.
+const MAX_NAME_CHARS = 120
+const MAX_DEDUPE_KEY_CHARS = 200
+
+function optionalText(value: unknown, max: number): string | null | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length > max) return null
+  return value.trim() || undefined
+}
+
 export function createWorkspaceChatOpener(deps: WorkspaceChatOpenerDeps): WorkspaceChatOpener {
   return async (input) => {
+    const name = optionalText(input.name, MAX_NAME_CHARS)
+    if (name === null) return refuse('invalid_input', `"name" must be a title of at most ${MAX_NAME_CHARS} characters.`)
+    const dedupeKey = optionalText(input.dedupeKey, MAX_DEDUPE_KEY_CHARS)
+    if (dedupeKey === null) {
+      return refuse('invalid_input', `"dedupeKey" must be a string of at most ${MAX_DEDUPE_KEY_CHARS} characters.`)
+    }
     const workspace = deps.getWorkspace(input.workspaceId)
     if (!workspace) {
       return refuse('unknown_workspace', `There is no open workspace "${input.workspaceId}" to open a chat in.`)
+    }
+    if (dedupeKey) {
+      const existing = Object.entries(workspace.agents).find(
+        ([, agent]) => agent.ownerModuleId === input.moduleId && agent.moduleChatKey === dedupeKey,
+      )
+      if (existing) {
+        deps.reveal(input.workspaceId, existing[0], existing[1].name)
+        return { ok: true, agentId: existing[0], existing: true }
+      }
     }
     const folderPath = workspace.folderPath?.trim()
     if (!folderPath) {
@@ -87,11 +118,16 @@ export function createWorkspaceChatOpener(deps: WorkspaceChatOpenerDeps): Worksp
     if (!seed) return refuse('cli_not_conversational', `"${cli}" cannot run as a chat agent here.`)
 
     const agentId = deps.newAgentId(providerId)
-    const name = deps.pickName(Object.values(workspace.agents).map((agent) => agent.name))
-    deps.writeAgent(input.workspaceId, agentId, { name, ...seed.agentPatch, ownerModuleId: input.moduleId })
+    const title = name ?? deps.pickName(Object.values(workspace.agents).map((agent) => agent.name))
+    deps.writeAgent(input.workspaceId, agentId, {
+      name: title,
+      ...seed.agentPatch,
+      ownerModuleId: input.moduleId,
+      ...(dedupeKey ? { moduleChatKey: dedupeKey } : {}),
+    })
     if (!send && prompt) deps.putDraft(input.workspaceId, agentId, { text: prompt, skillIds })
     if (skillIds.length > 0) deps.ensureSkills(folderPath, skillIds)
-    deps.reveal(input.workspaceId, agentId, name)
+    deps.reveal(input.workspaceId, agentId, title)
     return { ok: true, agentId }
   }
 }

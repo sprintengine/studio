@@ -12,7 +12,11 @@ import type {
   SkillHarness,
 } from '../shared/electron-api'
 import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
-import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../shared/modules/skills'
+import type {
+  EnsureSkillInstalledResult,
+  ModuleSkillRegistration,
+  ModuleSkillStatusResult,
+} from '../shared/modules/skills'
 import type { HostAgentIntegration } from './hosts/execution-host'
 import { isPathInsideOrEqual } from './path-containment'
 import { integrationLedger } from './integrations/ledger'
@@ -790,6 +794,41 @@ export async function ensureSkillInstalled(
     }
     // installed / local / modified: the skill is present in the native dir.
     return { ok: true, status: status.status }
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'install-failed',
+      message: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/**
+ * What `ensureSkillInstalled` would find, without writing anything: the read
+ * half a module's door shows ("installed in this project") before the person
+ * asks for the install. Same targets, same launch-delivery rule, same
+ * vocabulary — `missing` and `update-available` are the two states `ensure…`
+ * would have acted on. Never throws.
+ */
+export async function getSkillStatus(
+  workspaceRoot: string,
+  skillId: string,
+  options: { cli?: string } & SkillLaunchHost = {},
+): Promise<ModuleSkillStatusResult> {
+  if (!resolveSkillById(skillId)) {
+    return { ok: false, status: 'unknown-skill', message: `Unknown skill: ${skillId}` }
+  }
+  const { cli, ...launch } = options
+  if (bundledSkillDeliveredAtLaunch(cli, skillId, launch)) {
+    return { ok: true, status: 'delivered-at-launch' }
+  }
+  try {
+    const status = await skillManager().getStatus(workspaceRoot, skillId, {
+      skipLaunchDeliveredHarnesses: true,
+      launch,
+    })
+    if (!status.ok) return { ok: false, status: status.status, message: status.message }
+    return status.status === 'missing' ? { ok: false, status: 'missing' } : { ok: true, status: status.status }
   } catch (error) {
     return {
       ok: false,

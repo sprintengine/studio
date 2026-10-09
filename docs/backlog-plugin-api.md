@@ -61,9 +61,15 @@ frontmatter:
 - `moveBacklogObjectSource(input)`
 - `removeBacklogObjectRecord(input)`
 
-Renderer modules should use the action context helpers or `window.api` service
-methods. They must not read or write `<sidecar>/backlog/cache/` or item
-frontmatter directly. A stored link target that names a file must stay
+A module changes items only through the host: the action context helpers
+inside a Backlog action, and otherwise the module Backlog API —
+`getBacklogService(host)` in `entry.main`, or the `RendererHost` methods
+`createBacklogItem`, `updateBacklogStatus`, `updateBacklogTriage`,
+`addBacklogLink` and `updateBacklogModuleMetadata` (see "Module Backlog API"
+below). A module must not read or write `<sidecar>/backlog/cache/`, and must
+not write an item's file or its frontmatter itself: those writes would skip the
+project's mutation lane and the app's id and file-name rules. (`window.api` is
+the app's own surface, not a module contract.) A stored link target that names a file must stay
 project-root-relative, for example `<sidecar>/modules/<moduleId>/state.json` —
 never an absolute path, which stops meaning the same thing the moment the
 project is cloned somewhere else.
@@ -109,11 +115,42 @@ actions by module enablement before rendering them. Action ids must be unique.
 `review`, `organize`.
 
 `context.item` for an SDK module is `BacklogItemView`, which widens the enums to
-`string` and deliberately omits `risk`, `epic`, `dependsOn`, `highlight`,
-`mockups`, `numericId` and `displayId`.
+`string`, carries `numericId`, `displayId`, `epic` and `modifiedAt`, and
+deliberately omits `risk`, `dependsOn`, `highlight` and `mockups`.
 
 Use `updateModuleMetadata` for module-scoped data that belongs to the item but
 is not part of Backlog's core status/type/triage/link model.
+
+## Module Backlog API
+
+Outside an action — a door, a background job in `entry.main`, an MCP tool — a
+module reads and changes items through the host's Backlog service, served by
+`src/main/module-host/module-backlog.ts`:
+
+| Call (main: `getBacklogService(host)`) | Renderer twin | Permission |
+| --- | --- | --- |
+| `list(workspaceId)` | `listBacklogItems`, `watchBacklogItems(id, cb, { onError })` | `backlog.read` |
+| `getLocation(workspaceId)` → `{ root, isDefault, exists }` | `getBacklogLocation` | `backlog.read` |
+| `create(workspaceId, { title, body?, status?, type?, epic?, difficulty?, criticality?, risk? })` | `createBacklogItem` | `backlog.write` |
+| `updateStatus(workspaceId, itemId, status)` | `updateBacklogStatus` | `backlog.write` |
+| `updateTriage(workspaceId, itemId, { difficulty?, criticality?, risk? })` | `updateBacklogTriage` | `backlog.write` |
+| `addLink(workspaceId, itemId, link)` | `addBacklogLink` | `backlog.write` |
+| `updateModuleMetadata(workspaceId, itemId, value)` | `updateBacklogModuleMetadata` | `backlog.write` |
+
+- `itemId` is the item view's `id`, its logical `backlog/…` path. An item that
+  does not exist is `not_found`; nothing is written for it.
+- Each write calls the same Backlog service functions the panel's IPC calls,
+  inside `withBacklogWorkspaceLock` — the project's mutation lane — so a
+  module's write never interleaves with another writer's. `create` is
+  `createBacklogItem`, which takes the lane itself, allocates the next
+  numeric id, files the item under its epic and answers the new id.
+- `addLink` stamps the calling module as the link's owner; `updateModuleMetadata`
+  writes the calling module's key only.
+- Answers are result-shaped (`{ ok: false, code, message }`); vocabulary the app
+  does not know is `invalid_input`.
+- The renderer methods reach the same service in main through the host's
+  `modules:host-service:invoke` channel, and are refused while the Backlog
+  module is disabled.
 
 ## Link Providers
 
@@ -230,8 +267,11 @@ rather than part of this plugin contract.
 Bundled modules are first-party. Third-party capability modules declare
 permission strings in their manifest for install/trust disclosure. Permission
 validation accepts string scopes; these are install-time disclosure shown
-before you trust a module, not a runtime-enforced cage — there is no runtime
-Backlog permission broker, and these scopes do not gate `backlog-service` IPC.
+before you trust a module, not a runtime-enforced cage. Two of them are also
+checked at the call: the module Backlog API checks `backlog.read` and
+`backlog.write` on every call, and the renderer's `listBacklogItems` and
+`watchBacklogItems` check a third-party module's `backlog.read`. The app's own
+`backlog-service` IPC, which the panel uses, is not gated by them.
 
 Defined Backlog-related disclosure scopes (part of the capability-permission
 vocabulary, with consent descriptions, alongside the `ipc:*` tiers):
@@ -247,7 +287,7 @@ focus workspaces, spawn external processes, or open network resources should
 also declare the corresponding workspace/process/network capability scopes when
 those actions apply.
 
-These scopes are disclosure vocabulary only: they declare what a module says it
-does and surface readable consent text at install/trust time. They make no
-runtime enforcement claim, so describe them to users as disclosure, never as a
-sandbox or permission gate the app enforces.
+Beyond those checks, these scopes are disclosure vocabulary: they declare what
+a module says it does and surface readable consent text at install/trust time.
+Describe them to users as disclosure, never as a sandbox around a module's
+code.

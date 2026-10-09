@@ -3,8 +3,12 @@
 
 import type { DiagnosticLevel } from './git'
 
+// `module` is a capability module's own `notify` row (the bell rows
+// shared/modules/notifications.ts delivers). The renderer files those straight
+// into the bell, never through logDiagnostic; it is listed here so the two
+// declarations of this union stay one vocabulary.
 export type DiagnosticSource =
-  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
+  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'module' | 'terminal' | 'update' | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);

@@ -49,6 +49,7 @@ import { registerHostedCardFeedIpc } from './ipc/card-feed-ipc'
 import { registerCardsIpc } from './ipc/cards-ipc'
 import { registerCliVersionIpc } from './ipc/cli-version-ipc'
 import { registerModuleEnablementIpc, type ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
+import { registerModuleAppStateIpc } from './ipc/module-app-state-ipc'
 import { registerModuleRegistryIpc } from './ipc/module-registry-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerPullRequestIpc } from './ipc/pull-request-ipc'
@@ -56,9 +57,9 @@ import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
+import type { ThirdPartyLaunchSession } from './modules/third-party-main-loader'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
-import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerPanePopOutIpc } from './ipc/pane-popout-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
@@ -89,8 +90,9 @@ import { openDiagnosticsLogsFolder } from './diagnostics-folder'
 import { writeDiagnosticLog } from './diagnostics-service'
 
 export type CoreIpcOptions = {
-  includeDevModules?: boolean
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
+  /** What this session's third-party main halves did, for Settings → Extensions. */
+  readThirdPartyLaunchSession?: () => Promise<ThirdPartyLaunchSession>
   /**
    * The Studio server in a process of its own: its domains register there, on
    * its IPC tunnel, and a chat view's protocol connection is brokered to it.
@@ -159,11 +161,6 @@ export function registerCoreIpc(
   registerTextGenerationIpc(ipcMain)
   // The chat's "Create PR": git, gh and the drafting CLI all run on this computer.
   registerPullRequestCreateIpc(ipcMain)
-  // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
-  // main IPC is not yet a capability module, so gate it on the build channel
-  // here so `voice:transcribe` is genuinely absent in a packaged build, not just
-  // orphaned behind a hidden renderer surface.
-  if (options.includeDevModules ?? true) registerVoiceIpc(ipcMain)
   registerAuthIpc(ipcMain, services.sprintengineAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerStudioPluginIpc(ipcMain, services.studioPluginService)
@@ -244,6 +241,8 @@ export function registerCoreIpc(
   registerVersionControlIpc(machineIpc)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })
+  // Module app state (Settings section values), mirrored for `entry.main`.
+  registerModuleAppStateIpc(ipcMain)
   registerModuleRegistryIpc(ipcMain, services.moduleRegistryMirror)
   registerAppearanceIpc(ipcMain)
   registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)
@@ -286,7 +285,9 @@ export function registerCoreIpc(
       : // The server registers them, and disposes its own command lists.
         { conversationCommands: { dispose: async () => undefined } }
   registerDesignSystemIpc(ipcMain)
-  registerThirdPartyModuleIpc(ipcMain, services)
+  registerThirdPartyModuleIpc(ipcMain, services, {
+    ...(options.readThirdPartyLaunchSession ? { readLaunchSession: options.readThirdPartyLaunchSession } : {}),
+  })
 
   // The terminal runtime (agent-runtime) is always on, so its IPC registers
   // with the core surfaces.
