@@ -658,8 +658,10 @@ export function remoteConversationTitle(workspace: Pick<Workspace, 'name' | 'rem
  * listener's state: a person can drive paired machines with Remote turned off
  * here — the listener is what lets other machines drive THIS one — so a
  * listener that is down says nothing about whether the mesh can be reached.
- * An address out of Tailscale's own ranges sits on an interface only while
- * Tailscale is up (`resolveTailnetInterface`), which is exactly the question.
+ * The address is read off Tailscale's own interface (`resolveTailnetInterface`,
+ * which tells it apart from a WARP or other VPN tunnel in the same 100.64/10
+ * range), and that interface holds one only while Tailscale is up, which is
+ * exactly the question.
  */
 export type RemoteLinkState = 'unknown' | 'up' | 'down'
 
