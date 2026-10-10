@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { listAgentListeners } from './preview-ports'
+import { listAgentListeners, listProcListeners } from './preview-ports'
 
 // A machine with the server (pid 100), an agent it spawned (200), the agent's
 // dev server (300), and an unrelated process (900) that also listens.
@@ -85,6 +85,30 @@ test('linux: a /proc that cannot be read is an empty list, not a failure', async
     readdir: async () => [],
     readlink: async () => '',
   })
+  expect(listed).toEqual([])
+})
+
+test('linux: the listeners a given set of processes hold are read from /proc, with no lsof', async () => {
+  // The workspace's terminals own 300 and 900 here; 100's socket is not asked about.
+  expect(await listProcListeners([300, 900], linuxDeps())).toEqual([
+    { pid: 300, port: 3000 },
+    { pid: 300, port: 24190 },
+    { pid: 900, port: 9000 },
+  ])
+})
+
+test('linux: with no listening socket on the machine, no process is read', async () => {
+  const proc = fakeProc()
+  proc.files['/proc/net/tcp'] = HEADER
+  proc.files['/proc/net/tcp6'] = HEADER
+  const deps = linuxDeps(proc)
+  const listed: string[] = []
+  const readdir = deps.readdir
+  deps.readdir = async (path: string) => {
+    listed.push(path)
+    return readdir(path)
+  }
+  expect(await listProcListeners([300], deps)).toEqual([])
   expect(listed).toEqual([])
 })
 

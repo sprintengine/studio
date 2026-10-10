@@ -87,15 +87,74 @@ export function parseProcNetTcp(table: string): Map<string, number> {
   return listening
 }
 
-async function listLinux(input: ListAgentListenersInput): Promise<AgentListener[]> {
-  const read = input.readFile ?? ((path: string) => readFile(path, 'utf8'))
-  const list = input.readdir ?? ((path: string) => readdir(path))
-  const link = input.readlink ?? ((path: string) => readlink(path))
+type ProcReaders = {
+  read: (path: string) => Promise<string>
+  list: (path: string) => Promise<string[]>
+  link: (path: string) => Promise<string>
+}
+
+function procReaders(deps: PreviewPortDeps): ProcReaders {
+  return {
+    read: deps.readFile ?? ((path: string) => readFile(path, 'utf8')),
+    list: deps.readdir ?? ((path: string) => readdir(path)),
+    link: deps.readlink ?? ((path: string) => readlink(path)),
+  }
+}
+
+/** Every loopback or wildcard listening socket on the machine, IPv4 and IPv6: inode → port. */
+async function readListeningSockets({ read }: ProcReaders): Promise<Map<string, number>> {
   const sockets = new Map<string, number>()
   for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
     const text = await read(table).catch(() => '')
     for (const [inode, port] of parseProcNetTcp(text)) sockets.set(inode, port)
   }
+  return sockets
+}
+
+/**
+ * Which of `pids` hold one of `sockets`, read off each process's open file
+ * descriptors. A port held by two of them (a forked worker sharing its
+ * parent's socket) is listed once, for the first pid that has it.
+ */
+async function socketHolders(
+  pids: Iterable<number>,
+  sockets: ReadonlyMap<string, number>,
+  { list, link }: ProcReaders,
+): Promise<Array<{ pid: number; port: number }>> {
+  const found: Array<{ pid: number; port: number }> = []
+  const seen = new Set<number>()
+  for (const pid of pids) {
+    const fds = await list(`/proc/${pid}/fd`).catch(() => [] as string[])
+    for (const fd of fds) {
+      const target = await link(`/proc/${pid}/fd/${fd}`).catch(() => '')
+      const inode = /^socket:\[(\d+)\]$/u.exec(target)?.[1]
+      const port = inode ? sockets.get(inode) : undefined
+      if (port === undefined || seen.has(port)) continue
+      seen.add(port)
+      found.push({ pid, port })
+    }
+  }
+  return found
+}
+
+/**
+ * The loopback or wildcard TCP listeners `pids` hold, from `/proc` alone: no
+ * `lsof`, which a slim Linux image or a container often does not ship. Empty
+ * where there is no `/proc` to read.
+ */
+export async function listProcListeners(
+  pids: Iterable<number>,
+  deps: PreviewPortDeps = {},
+): Promise<Array<{ pid: number; port: number }>> {
+  const readers = procReaders(deps)
+  const sockets = await readListeningSockets(readers)
+  return sockets.size === 0 ? [] : socketHolders(pids, sockets, readers)
+}
+
+async function listLinux(input: ListAgentListenersInput): Promise<AgentListener[]> {
+  const readers = procReaders(input)
+  const { read, list } = readers
+  const sockets = await readListeningSockets(readers)
   if (sockets.size === 0) return []
 
   const parents = new Map<number, number>()
@@ -113,19 +172,11 @@ async function listLinux(input: ListAgentListenersInput): Promise<AgentListener[
   }
   const agents = descendantsOf(input.rootPid, parents)
   const own = new Set(input.ownPorts)
+  const ownFree = new Map([...sockets].filter(([, port]) => !own.has(port)))
   const found: AgentListener[] = []
-  const seen = new Set<number>()
-  for (const pid of agents) {
-    const fds = await list(`/proc/${pid}/fd`).catch(() => [] as string[])
-    for (const fd of fds) {
-      const target = await link(`/proc/${pid}/fd/${fd}`).catch(() => '')
-      const inode = /^socket:\[(\d+)\]$/u.exec(target)?.[1]
-      const port = inode ? sockets.get(inode) : undefined
-      if (port === undefined || own.has(port) || seen.has(port)) continue
-      seen.add(port)
-      const cmdline = await read(`/proc/${pid}/cmdline`).catch(() => '')
-      found.push({ port, pid, command: cmdline.split('\0').join(' ').trim().slice(0, COMMAND_CHARS) })
-    }
+  for (const { pid, port } of await socketHolders(agents, ownFree, readers)) {
+    const cmdline = await read(`/proc/${pid}/cmdline`).catch(() => '')
+    found.push({ port, pid, command: cmdline.split('\0').join(' ').trim().slice(0, COMMAND_CHARS) })
   }
   return found.sort((a, b) => a.port - b.port)
 }
