@@ -39,8 +39,6 @@ export type EditorLocation = {
 
 /** How many files one `editor.open` may put in front of the person. */
 export const EDITOR_OPEN_MAX_FILES = 8
-/** A note is one line above the editor, not a message. */
-export const EDITOR_NOTE_MAX_CHARS = 140
 
 /**
  * What the person could see when the tool answered.
@@ -119,18 +117,6 @@ export function parseEditorLocation(value: unknown): Parsed<EditorLocation> {
   return { ok: true, value: location }
 }
 
-/** The note, trimmed, or null. Past the cap it is refused, not cut mid-word. */
-export function parseEditorNote(value: unknown): Parsed<string | null> {
-  if (value === undefined || value === null) return { ok: true, value: null }
-  if (typeof value !== 'string') return { ok: false, message: '`note` must be a string.' }
-  const note = value.replace(/\s+/g, ' ').trim()
-  if (!note) return { ok: true, value: null }
-  if (note.length > EDITOR_NOTE_MAX_CHARS) {
-    return { ok: false, message: `\`note\` is ${note.length} characters; keep it to ${EDITOR_NOTE_MAX_CHARS}.` }
-  }
-  return { ok: true, value: note }
-}
-
 /** A range clamped into a file of `lineCount` lines — what the editor can actually show. */
 export function clampEditorRange(range: EditorRange, lineCount: number): EditorRange {
   const last = Math.max(1, lineCount)
@@ -198,7 +184,6 @@ export type EditorRevealRequest = {
   workspaceId: string
   /** Who is asking, for "Claude wants to show you …". Null reads as "An agent". */
   agentName: string | null
-  note: string | null
   files: EditorRevealFileTarget[]
   /** Outside anything the agent may open on its own: the person says Open or Dismiss. */
   awaiting: EditorRevealFileTarget[]
