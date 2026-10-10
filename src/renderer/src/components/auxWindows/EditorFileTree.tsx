@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { normalizePathKey, useGitStatus } from '../../hooks/useGitStatus'
+import { useSlowFolderLoads } from '../../hooks/useSlowFolderLoads'
 import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import { isPathOrChild } from '../../utils/paths'
 import {
@@ -106,6 +107,7 @@ export function EditorFileTree({
   const [changedCollapsed, setChangedCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [pinnedMenu, setPinnedMenu] = useState<{ x: number; y: number } | null>(null)
+  const { slowPaths: slowFolderPaths, track: trackFolderLoad } = useSlowFolderLoads()
   const pendingScrollPathRef = useRef<string | null>(null)
 
   const expanded = useMemo(() => (rootPath ? (expandedByRoot[rootPath] ?? {}) : {}), [expandedByRoot, rootPath])
@@ -213,7 +215,7 @@ export function EditorFileTree({
       }
       if (open) {
         try {
-          await model?.ensureLoaded(entry.path)
+          if (model) await trackFolderLoad(entry.path, model.ensureLoaded(entry.path))
         } catch {
           return
         }
@@ -224,7 +226,7 @@ export function EditorFileTree({
         )
       }
     },
-    [filter, model, setExpanded],
+    [filter, model, setExpanded, trackFolderLoad],
   )
 
   const activate = useCallback(
@@ -376,6 +378,7 @@ export function EditorFileTree({
               // level is the top of the tree.
               indentSteps={0}
               expanded={isExpanded(entry)}
+              loading={entry.isDir && slowFolderPaths.has(entry.path)}
               onToggleExpanded={() => {
                 setSelectedPath(entry.path)
                 void setFolderOpen(entry, !isExpanded(entry))

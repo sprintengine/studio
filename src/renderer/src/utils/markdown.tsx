@@ -13,6 +13,12 @@ import { copyToClipboardWithToast } from './copyToClipboardWithToast'
 import type { GitLineChange } from './gitDiff'
 import { tableCsv, tableHtml, tableMarkdown, tableTsv } from './markdownTableClipboard'
 import { remarkFencedCodeValue, singleFencedCode } from './markdownFence'
+import {
+  isMarkdownFragmentHref,
+  MARKDOWN_FRAGMENT_PREFIX,
+  markdownFragmentTarget,
+  remarkHeadingIds,
+} from './markdownHeadingIds'
 import { DisplayMath, InlineMath, isMathLanguage, remarkMathDelimiters } from './markdownMath'
 import { remarkUserText } from './markdownUserText'
 
@@ -76,6 +82,11 @@ type MarkdownRenderOptions = {
    * when it returns null, an image is stated by its alt text.
    */
   renderImage?: (src: string, alt: string, inLink: boolean) => React.ReactNode | null
+  /**
+   * `#heading` links scroll to their heading in the same document (on unless
+   * false). Off hands a fragment to `renderLink` like any other href.
+   */
+  inPageLinks?: boolean
   /**
    * The text is a message a person typed, not a document: every newline is a
    * line break and HTML shows as the text it is (`remarkUserText`).
@@ -197,7 +208,7 @@ function chatScale(steps: {
     // A neutral pill in strong ink: an identifier is one of the things a reader
     // scans a reply for, so it stands out by contrast, not by a status hue. The
     // mono face runs wide, so it steps under the surrounding text's size.
-    code: `rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] px-[0.3em] py-[0.05em] text-[0.9em] ${CHAT_INK_STRONG} break-words [pre_&]:text-[1em]`,
+    code: `rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] px-[0.3em] py-[0.05em] text-[0.9em] ${CHAT_INK_STRONG} break-words box-decoration-clone [pre_&]:text-[1em]`,
     strong: `font-semibold ${CHAT_INK_STRONG}`,
     // Emphasis is a change of voice, not of importance: it keeps the ink it is in.
     em: 'italic',
@@ -233,8 +244,10 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     list: `mb-4 ml-6 space-y-2 ${baseTextClass}`,
     pre: 'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-body leading-6 text-[color:var(--terminal-fg)]',
     // A long path wraps instead of pushing the line box wider than the column;
-    // `break-words` keeps a short token whole and moves it down instead.
-    code: 'rounded-xs border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words',
+    // `break-words` keeps a short token whole and moves it down instead. Each
+    // scale's pill is cloned onto every line it wraps across, so no fragment
+    // is left with an open end and padding on one side only.
+    code: 'rounded-xs border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words box-decoration-clone',
     strong: 'font-semibold text-[color:var(--text-strong)]',
     em: 'italic',
     blockquote: 'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
@@ -261,7 +274,7 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     pre: 'my-4 overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-micro leading-[1.7] text-[color:var(--text-default)]',
     // Inline code sits inside running text, so it matches that text's size;
     // inside a fence it takes the fence's, which is already set on the <pre>.
-    code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words [pre_&]:text-[1em]',
+    code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words box-decoration-clone [pre_&]:text-[1em]',
     strong: 'font-semibold text-[color:var(--text-strong)]',
     em: 'italic',
     blockquote: 'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
@@ -304,7 +317,24 @@ function joinClasses(...classes: Array<string | false | null | undefined>): stri
 }
 
 const safeMarkdownUrlTransform: UrlTransform = (url) => {
-  return isSafeMarkdownUrl(url) ? url : ''
+  return isSafeMarkdownUrl(url) || isMarkdownFragmentHref(url) ? url : ''
+}
+
+// Only the ids the document's own passes wrote, all prefixed, reach the page:
+// anything else could share a name with an element of the app around it.
+function documentId(id: string | undefined): string | undefined {
+  return id?.startsWith(MARKDOWN_FRAGMENT_PREFIX) ? id : undefined
+}
+
+function followMarkdownFragment(event: React.MouseEvent<HTMLAnchorElement>): void {
+  event.preventDefault()
+  const href = event.currentTarget.getAttribute('href') ?? ''
+  markdownFragmentTarget(event.currentTarget, href)?.scrollIntoView({ block: 'start', inline: 'nearest' })
+}
+
+// A middle click would ask for a new window onto the app's own page.
+function preventDefault(event: React.SyntheticEvent): void {
+  event.preventDefault()
 }
 
 function isSafeMarkdownUrl(url: string | undefined): url is string {
@@ -393,7 +423,7 @@ function markAlert(quote: MarkdownSyntaxNode): void {
   quote.data = { ...quote.data, hProperties: { ...quote.data?.hProperties, dataAlert: match[1].toLowerCase() } }
 }
 
-const MARKDOWN_PLUGINS = [remarkGfm, remarkGithubAlerts]
+const MARKDOWN_PLUGINS = [remarkGfm, remarkGithubAlerts, remarkHeadingIds]
 const USER_TEXT_PLUGINS = [...MARKDOWN_PLUGINS, remarkUserText]
 // remark-math builds the formulas' nodes; which delimiters open one is ours
 // (`markdownMath.tsx`), and a single dollar never does: in a reply it is a
@@ -614,29 +644,56 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
   }
 
   const components: Components = {
-    h1: ({ node, children, className }: MarkdownComponentProps<'h1'>) => (
-      <h1 className={joinClasses(className, scale.h1, changedBlockClass(node, lineChanges))}>{children}</h1>
+    h1: ({ node, children, className, id }: MarkdownComponentProps<'h1'>) => (
+      <h1 id={documentId(id)} className={joinClasses(className, scale.h1, changedBlockClass(node, lineChanges))}>
+        {children}
+      </h1>
     ),
-    h2: ({ node, children, className }: MarkdownComponentProps<'h2'>) => (
-      <h2 className={joinClasses(className, scale.h2, changedBlockClass(node, lineChanges))}>{children}</h2>
+    h2: ({ node, children, className, id }: MarkdownComponentProps<'h2'>) => (
+      <h2 id={documentId(id)} className={joinClasses(className, scale.h2, changedBlockClass(node, lineChanges))}>
+        {children}
+      </h2>
     ),
-    h3: ({ node, children, className }: MarkdownComponentProps<'h3'>) => (
-      <h3 className={joinClasses(className, scale.h3, changedBlockClass(node, lineChanges))}>{children}</h3>
+    h3: ({ node, children, className, id }: MarkdownComponentProps<'h3'>) => (
+      <h3 id={documentId(id)} className={joinClasses(className, scale.h3, changedBlockClass(node, lineChanges))}>
+        {children}
+      </h3>
     ),
-    h4: ({ node, children, className }: MarkdownComponentProps<'h4'>) => (
-      <h4 className={joinClasses(className, scale.h4, changedBlockClass(node, lineChanges))}>{children}</h4>
+    h4: ({ node, children, className, id }: MarkdownComponentProps<'h4'>) => (
+      <h4 id={documentId(id)} className={joinClasses(className, scale.h4, changedBlockClass(node, lineChanges))}>
+        {children}
+      </h4>
     ),
-    h5: ({ node, children, className }: MarkdownComponentProps<'h5'>) => (
-      <h5 className={joinClasses(className, scale.h5, changedBlockClass(node, lineChanges))}>{children}</h5>
+    h5: ({ node, children, className, id }: MarkdownComponentProps<'h5'>) => (
+      <h5 id={documentId(id)} className={joinClasses(className, scale.h5, changedBlockClass(node, lineChanges))}>
+        {children}
+      </h5>
     ),
-    h6: ({ node, children, className }: MarkdownComponentProps<'h6'>) => (
-      <h6 className={joinClasses(className, scale.h6, changedBlockClass(node, lineChanges))}>{children}</h6>
+    h6: ({ node, children, className, id }: MarkdownComponentProps<'h6'>) => (
+      <h6 id={documentId(id)} className={joinClasses(className, scale.h6, changedBlockClass(node, lineChanges))}>
+        {children}
+      </h6>
     ),
     p: ({ node, children, className }: MarkdownComponentProps<'p'>) => (
       <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>{prose(children)}</p>
     ),
-    a: ({ children: label, href, className }: MarkdownComponentProps<'a'>) => {
+    a: ({ children: label, href, className, id }: MarkdownComponentProps<'a'>) => {
       const children = <LinkLabelContext.Provider value>{label}</LinkLabelContext.Provider>
+      // A link into the document itself is never a file or a web page, so it is
+      // settled before a surface's own link renderer sees it.
+      if (options.inPageLinks !== false && isMarkdownFragmentHref(href)) {
+        return (
+          <a
+            href={href}
+            id={documentId(id)}
+            onClick={followMarkdownFragment}
+            onAuxClick={preventDefault}
+            className={joinClasses(className, LINK_CLASS)}
+          >
+            {children}
+          </a>
+        )
+      }
       const custom = href ? options.renderLink?.(href, children) : null
       if (custom) return custom
       const target = links && typeof href === 'string' ? links.resolve(href) : null
@@ -792,8 +849,8 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
         {children}
       </ol>
     ),
-    li: ({ node, children, className, value }: MarkdownComponentProps<'li'>) => (
-      <li value={value} className={joinClasses(className, changedBlockClass(node, lineChanges))}>
+    li: ({ node, children, className, value, id }: MarkdownComponentProps<'li'>) => (
+      <li value={value} id={documentId(id)} className={joinClasses(className, changedBlockClass(node, lineChanges))}>
         {prose(children)}
       </li>
     ),
@@ -844,18 +901,29 @@ function MarkdownRenderer({
   markdown: string
   options: MarkdownRenderOptions
 }): React.ReactNode {
-  const { lineChanges, links, density, renderText, renderLink, renderImage, codeBlock, math } = options
+  const { lineChanges, links, density, renderText, renderLink, renderImage, codeBlock, math, inPageLinks } = options
   // Component types must outlive a streamed source update: recreating them
   // remounts code blocks, discards their wrap state, and destroys text selection.
   // Streaming state travels through context without changing those types.
   const components = React.useMemo(
-    () => markdownComponents({ lineChanges, links, density, renderText, renderLink, renderImage, codeBlock, math }),
-    [lineChanges, links, density, renderText, renderLink, renderImage, codeBlock, math],
+    () =>
+      markdownComponents({
+        lineChanges,
+        links,
+        density,
+        renderText,
+        renderLink,
+        renderImage,
+        codeBlock,
+        math,
+        inPageLinks,
+      }),
+    [lineChanges, links, density, renderText, renderLink, renderImage, codeBlock, math, inPageLinks],
   )
 
   // A resolver's own hrefs survive the protocol guard so the `a` component can
-  // see them; everything else still has to be http, https or mailto to keep
-  // its href at all.
+  // see them; everything else still has to be http, https or mailto, or a
+  // fragment of the document itself, to keep its href at all.
   const hrefTransform: UrlTransform = options.renderLink
     ? (url) => url
     : links

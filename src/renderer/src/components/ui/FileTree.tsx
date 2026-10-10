@@ -2,6 +2,7 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef,
 
 import { IconButton } from './Buttons'
 import { FileTypeGlyph, FolderGlyph } from './FileTypeGlyph'
+import { Spinner } from './Spinner'
 import { folderRoleInk, type FolderRole } from '../../utils/folderRoles'
 
 // File tree — the rows of a folder tree, at the 24px hit-target floor.
@@ -141,6 +142,12 @@ export type FileTreeRowProps = {
   /** Folders only. */
   expanded?: boolean
   onToggleExpanded?: () => void
+  /**
+   * Folders only: its listing is slow to arrive, so the spinner stands in the
+   * chevron's slot. The tree decides when a listing counts as slow
+   * (`useSlowFolderLoads`).
+   */
+  loading?: boolean
   selection?: FileTreeRowSelection
   /** Drag-and-drop target: the fill and a 1px accent ring. */
   dropTarget?: boolean
@@ -168,6 +175,7 @@ export function FileTreeRow({
   indentSteps = 1,
   expanded = false,
   onToggleExpanded,
+  loading = false,
   selection = null,
   dropTarget = false,
   ignored = false,
@@ -210,6 +218,7 @@ export function FileTreeRow({
       role="treeitem"
       aria-selected={selection !== null}
       aria-expanded={isDir ? expanded : undefined}
+      aria-busy={isDir && loading ? true : undefined}
       // The root row, when there is one, is level 1 and its children level 2.
       aria-level={depth + 1 + indentSteps}
       // 24px at rest: `size.hit-target-min`. The two pixels come out of the
@@ -231,14 +240,22 @@ export function FileTreeRow({
     >
       {isDir ? (
         <>
-          <FileTreeChevron
-            expanded={expanded}
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              onToggleExpanded?.()
-            }}
-          />
+          {loading ? (
+            // The chevron's 12px advance, so the folder mark and the name hold
+            // still while the spinner stands in and when the chevron returns.
+            <span className="inline-flex w-3 shrink-0 items-center justify-center">
+              <Spinner size={12} label="Loading folder" />
+            </span>
+          ) : (
+            <FileTreeChevron
+              expanded={expanded}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onToggleExpanded?.()
+              }}
+            />
+          )}
           <FileTreeFolderIcon role={folderRole} />
           {nameSlot ?? <span className={`truncate font-medium ${nameClassName}`}>{name}</span>}
         </>

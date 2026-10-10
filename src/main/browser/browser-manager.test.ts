@@ -4,6 +4,8 @@ import {
   ALLOWED_PERMISSIONS,
   TAB_MOVE_GRACE_MS,
   createAgentTabAssignments,
+  createBrowserManager,
+  type BrowserManagerDeps,
   cropRect,
   descendantPids,
   fileStamp,
@@ -240,4 +242,76 @@ test('user agent: what is left is single-spaced, with no space at either end', (
 test('user agent: a token that only contains the name is left alone', () => {
   const ua = `${CHROME_UA} NotSprintEngineStudio/1.0`
   assert.equal(stripUserAgent(ua), ua)
+})
+
+// Linux without `lsof`: the listeners come from `/proc` instead. A workspace
+// terminal (pid 10) runs a shell whose child (20) serves on 5173; another
+// workspace's terminal (50) has a child (60) on 8080.
+function linuxManager(listProcListeners: NonNullable<BrowserManagerDeps['listProcListeners']>) {
+  const asked: number[][] = []
+  const manager = createBrowserManager({
+    listTerminalRoots: () => [
+      { rootPid: 10, workspaceId: 'ws-a', sessionId: 's-a', terminalId: 't-a' },
+      { rootPid: 50, workspaceId: 'ws-b', sessionId: 's-b', terminalId: 't-b' },
+    ],
+    isHostWindow: () => false,
+    broadcast: () => {},
+    resolveWorkspaceRoot: () => null,
+    platform: 'linux',
+    runPs: async () =>
+      [
+        '   10     1  0.0 -zsh',
+        '   20    10  1.0 /usr/bin/node /Users/dev/app/node_modules/.bin/vite',
+        '   50     1  0.0 -bash',
+        '   60    50  0.0 python3 -m http.server 8080',
+      ].join('\n'),
+    runLsofListening: async () => null,
+    listProcListeners: async (pids) => {
+      asked.push([...pids])
+      return listProcListeners(pids)
+    },
+    probeServer: async () => true,
+  })
+  return { manager, asked }
+}
+
+test('local servers: on Linux without lsof, a terminal’s dev server is found from /proc', async () => {
+  const { manager, asked } = linuxManager(async () => [{ pid: 20, port: 5173 }])
+  const servers = await manager.listLocalServers('ws-a')
+  assert.deepEqual(asked, [[20]], 'only the workspace’s own processes are read')
+  assert.deepEqual(servers, [
+    {
+      url: 'http://localhost:5173/',
+      port: 5173,
+      pid: 20,
+      command: 'node',
+      sessionId: 's-a',
+      terminalId: 't-a',
+    },
+  ])
+})
+
+test('local servers: a /proc listener held by a process outside the workspace is not listed', async () => {
+  const { manager } = linuxManager(async () => [{ pid: 60, port: 8080 }])
+  assert.deepEqual(await manager.listLocalServers('ws-a'), [])
+})
+
+test('local servers: on macOS a missing lsof still lists nothing, with no /proc to read', async () => {
+  let readProc = false
+  const manager = createBrowserManager({
+    listTerminalRoots: () => [{ rootPid: 10, workspaceId: 'ws-a', sessionId: 's-a', terminalId: 't-a' }],
+    isHostWindow: () => false,
+    broadcast: () => {},
+    resolveWorkspaceRoot: () => null,
+    platform: 'darwin',
+    runPs: async () => ['   10     1  0.0 -zsh', '   20    10  1.0 node vite'].join('\n'),
+    runLsofListening: async () => null,
+    listProcListeners: async () => {
+      readProc = true
+      return [{ pid: 20, port: 5173 }]
+    },
+    probeServer: async () => true,
+  })
+  assert.deepEqual(await manager.listLocalServers('ws-a'), [])
+  assert.equal(readProc, false)
 })

@@ -8,6 +8,7 @@ import {
 } from './fileExplorerModuleActions'
 import { getGitEntry, normalizePathKey, useGitStatus } from '../../hooks/useGitStatus'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
+import { useSlowFolderLoads } from '../../hooks/useSlowFolderLoads'
 import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import {
   FOLDER_ROLE_LABEL,
@@ -427,6 +428,7 @@ function ExplorerTree({
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
   const [rootDropActive, setRootDropActive] = useState(false)
   const [contextMenu, setContextMenu] = useState<ExplorerMenuState | null>(null)
+  const { slowPaths: slowFolderPaths, track: trackFolderLoad } = useSlowFolderLoads()
   const searchTimeoutRef = useRef<number | null>(null)
   const searchRequestSeqRef = useRef(0)
   const committingRenameRef = useRef(false)
@@ -597,8 +599,10 @@ function ExplorerTree({
     [model],
   )
 
+  // Every open goes through here — a click, the arrow key, the menu — so each
+  // one gets the spinner when the listing is slow (an SSH machine).
   const ensureDirectoryLoaded = async (dirPath: string) => {
-    await model?.ensureLoaded(dirPath)
+    if (model) await trackFolderLoad(dirPath, model.ensureLoaded(dirPath))
   }
 
   const focusTree = () => {
@@ -1794,6 +1798,7 @@ function ExplorerTree({
                 isDir={entry.isDir}
                 depth={depth}
                 expanded={isExpanded}
+                loading={entry.isDir && slowFolderPaths.has(entry.path)}
                 onToggleExpanded={() => {
                   if (!isSearching && !entry.gitDeleted) void toggleDirectory(entry)
                 }}
