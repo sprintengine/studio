@@ -118,6 +118,12 @@ test('a pane pop-out window hosts the embedded browser, under the guest policy',
   )
 })
 
+test("a browser page's fullscreen in a popped-out pane fills its webview, not the window", () => {
+  const win = openPanePopOutWindow({ popOutId: 'pop-fs', workspaceId: 'ws-1', bounds: null }) as unknown as FakeWindow
+  const preferences = win.options.webPreferences as Record<string, unknown>
+  assert.equal(preferences.disableHtmlFullscreenWindowResize, true)
+})
+
 test('no other aux window is given the webview tag', () => {
   openAuxWindow({ kind: 'diff', singletonKey: 'no-webview', params: { repoRoot: '/Users/dev/repo' } })
   const [win] = created

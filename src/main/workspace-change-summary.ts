@@ -21,9 +21,11 @@ import type { WorkspaceChangeSummary } from '../shared/electron-api'
  * The reading is the branch the agent's checkout is on:
  * `merge-base(HEAD, <trunk>) → working tree`. Whatever the person already had
  * committed on the trunk sits on both sides of that base and never enters the
- * number, and — the property the checkpoint model could not have — a pull, a
- * merge or a commit landing under the agent moves HEAD and the base together, so
- * ordinary repo movement is invisible here by construction.
+ * number, and a pull, a merge or a commit landing under the agent moves HEAD and
+ * the base together, so ordinary repo movement is invisible here by
+ * construction. A turn's checkpoints only approximate that: they set aside
+ * commits older than the turn when HEAD moved during it, so a commit someone
+ * else makes in the same checkout while the turn runs still reads as the turn's.
  *
  * `scope` is the honesty contract, not a debug field. It says how much the
  * caller is entitled to claim, and the row's tooltip and spoken label are

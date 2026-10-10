@@ -38,6 +38,7 @@ import {
   DEFAULT_SKILL_MAX_TREE_ENTRIES,
 } from './github-tree'
 import { isSkillRepoSegment, splitSkillRepo, type SkillRepoLocation, type SkillRepoSsh } from '../../shared/skill-repo'
+import { withGitExecutable } from '../git-executable'
 import type { SkillRepoReader } from './repo-reader'
 import type { SkillTreeEntry } from './scan'
 
@@ -252,13 +253,21 @@ class GitProcessError extends Error {
  *     lock on that door: a failure with an empty stderr says only the exit code.
  */
 export function defaultRunGit(args: string[], options: GitRunOptions): Promise<GitRunResult> {
+  // On Windows, the real git.exe rather than Git for Windows' launcher (see
+  // git-executable.ts) — which also makes the child killed below git itself,
+  // not a launcher whose git would outlive it.
+  const env = gitEnv(options.env)
+  return withGitExecutable(env, (file) => startGit(file, args, env, options))
+}
+
+function startGit(file: string, args: string[], env: NodeJS.ProcessEnv, options: GitRunOptions): Promise<GitRunResult> {
   return new Promise((resolve, reject) => {
     // Windows has no process groups to detach into; there the child alone is
     // what we can kill, and `windowsHide` keeps a console from flashing up.
     const grouped = process.platform !== 'win32'
-    const child = spawn('git', args, {
+    const child = spawn(file, args, {
       cwd: options.cwd,
-      env: gitEnv(options.env),
+      env,
       windowsHide: true,
       detached: grouped,
       stdio: ['pipe', 'pipe', 'pipe'],

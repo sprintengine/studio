@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { withGitExecutable } from './git-executable'
 import { createGitRepoReader } from './skills/git-repo-reader'
 import type { SkillRepoReader } from './skills/repo-reader'
 
@@ -60,11 +61,10 @@ export function createGitTransportProbe(options: {
 
 async function gitMeetsFloor(): Promise<boolean> {
   try {
-    const { stdout } = await execFileAsync('git', ['--version'], {
-      windowsHide: true,
-      timeout: 5_000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    })
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+    const { stdout } = await withGitExecutable(env, (file) =>
+      execFileAsync(file, ['--version'], { windowsHide: true, timeout: 5_000, env }),
+    )
     const match = /git version (\d+)\.(\d+)/.exec(String(stdout))
     if (!match) return false
     const [major, minor] = [Number(match[1]), Number(match[2])]

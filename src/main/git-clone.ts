@@ -2,6 +2,7 @@ import { execFile } from 'child_process'
 import { join } from 'path'
 import { lstat, mkdir, rm } from 'fs/promises'
 import { promisify } from 'util'
+import { withGitExecutable } from './git-executable'
 import type { GitHubCloneInput, GitHubCloneResult } from '../shared/electron-api'
 import { validateCloneUrl } from '../shared/git-clone-url'
 
@@ -80,13 +81,15 @@ export async function cloneGitHubRepo(input: GitHubCloneInput & { token?: string
   args.push('--', urlCheck.url, target)
 
   try {
-    await execFileAsync('git', args, {
-      encoding: 'utf8',
-      maxBuffer: 20 * 1024 * 1024,
-      windowsHide: true,
-      timeout: CLONE_TIMEOUT_MS,
-      env,
-    })
+    await withGitExecutable(env, (file) =>
+      execFileAsync(file, args, {
+        encoding: 'utf8',
+        maxBuffer: 20 * 1024 * 1024,
+        windowsHide: true,
+        timeout: CLONE_TIMEOUT_MS,
+        env,
+      }),
+    )
     return { ok: true, path: target }
   } catch (error) {
     const execError = error as { stderr?: string; killed?: boolean; message?: string }

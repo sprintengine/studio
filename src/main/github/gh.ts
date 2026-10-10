@@ -22,7 +22,13 @@ import { promisify } from 'node:util'
 
 import { resolveWindowsProgramOnPath } from '../command-on-path'
 import { gitSafetyEnv } from '../git-run'
-import { createLoginShellPathResolver, findExecutable, searchDirectories } from '../login-shell-path'
+import {
+  createLoginShellPathResolver,
+  findExecutable,
+  searchDirectories,
+  sharedLoginShellPath,
+  type LoginShellPathResolver,
+} from '../login-shell-path'
 
 const execFileAsync = promisify(execFile)
 
@@ -123,24 +129,12 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): De
   const platform = environment.platform ?? process.platform
   const resolveWindowsProgram = environment.resolveWindowsProgram ?? ((name) => resolveWindowsProgramOnPath(name))
   const find = environment.findExecutable ?? findExecutable
-  const loginShellPath = createLoginShellPathResolver({
-    run: async (descriptor, env) => {
-      try {
-        const { stdout } = await spawn(descriptor.file, descriptor.args, {
-          maxBuffer: GH_MAX_BUFFER_BYTES,
-          windowsHide: true,
-          env,
-          timeout: descriptor.timeoutMs,
-          killSignal: 'SIGTERM',
-        })
-        return { code: 0, stdout, timedOut: false }
-      } catch (error) {
-        const result = resultFromSpawnError(error)
-        return { code: result.code, stdout: result.stdout, timedOut: result.timedOut === true }
-      }
-    },
-    shell: () => shell,
-  })
+  // The process's one login-shell lookup, shared with CLI detection: a second
+  // shell would only print the same PATH again. A runner given its own spawn or
+  // shell asks that shell through that spawn instead, so a test sees every
+  // process it starts.
+  const loginShellPath =
+    environment.spawn || environment.shell !== undefined ? ownLoginShellPath(spawn, shell) : sharedLoginShellPath()
   let located: Promise<GhLocation | null> | null = null
 
   const runFile = async (file: string, args: string[], options: GhRunOptions, path?: string): Promise<GhResult> => {
@@ -216,6 +210,28 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): De
       loginShellPath.invalidate()
     },
   }
+}
+
+/** A login-shell lookup that starts its shells through `spawn`. */
+function ownLoginShellPath(spawn: GhSpawn, shell: string | undefined): LoginShellPathResolver {
+  return createLoginShellPathResolver({
+    run: async (descriptor, env) => {
+      try {
+        const { stdout } = await spawn(descriptor.file, descriptor.args, {
+          maxBuffer: GH_MAX_BUFFER_BYTES,
+          windowsHide: true,
+          env,
+          timeout: descriptor.timeoutMs,
+          killSignal: 'SIGTERM',
+        })
+        return { code: 0, stdout, timedOut: false }
+      } catch (error) {
+        const result = resultFromSpawnError(error)
+        return { code: result.code, stdout: result.stdout, timedOut: result.timedOut === true }
+      }
+    },
+    shell: () => shell,
+  })
 }
 
 /** The child's environment: the git-safe one, less anything the caller unset. */

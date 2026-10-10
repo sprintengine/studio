@@ -43,6 +43,11 @@ export function applyGuestWebPreferences(
   webPreferences.nodeIntegrationInWorker = false
   webPreferences.webSecurity = true
   webPreferences.allowRunningInsecureContent = false
+  // A page that goes fullscreen fills the app window's content, never the
+  // screen: left on, Electron would put the whole window into the OS's full
+  // screen. The window hosting the guest turns it off too, since the guest's
+  // fullscreen is passed on to it.
+  webPreferences.disableHtmlFullscreenWindowResize = true
   return true
 }
 

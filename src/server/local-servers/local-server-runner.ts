@@ -1,15 +1,10 @@
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { delimiter } from 'node:path'
 
 import { STUDIO_LOCAL_SERVER_MAX_OUTPUT } from '../../../packages/studio-protocol/src/public'
 import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV, withoutStudioEnv } from '../../shared/studio-env'
 import { withoutInheritedSessionEnv } from '../../main/inherited-session-env'
-import {
-  createLoginShellPathResolver,
-  searchDirectories,
-  type LoginShellPathDescriptor,
-  type LoginShellPathOutcome,
-} from '../../main/login-shell-path'
+import { searchDirectories, sharedLoginShellPath } from '../../main/login-shell-path'
 import { killProcessTree } from '../../main/process-tree-kill'
 
 // Running a linked server's command again, as a process the Studio owns: what
@@ -193,31 +188,15 @@ function sanitizedProcessEnv(): Record<string, string> {
 
 function defaultEnv(platform: NodeJS.Platform): () => Promise<Record<string, string>> {
   if (platform === 'win32') return async () => sanitizedProcessEnv()
-  const loginPath = createLoginShellPathResolver({ run: runDescriptor, shell: () => process.env.SHELL })
+  // The process's one login-shell lookup: in the desktop, the same answer CLI
+  // detection and gh already have.
+  const loginPath = sharedLoginShellPath()
   return async () => {
     const env = sanitizedProcessEnv()
     const path = await loginPath.resolve(env)
     if (path) env.PATH = searchDirectories(path, env.PATH).join(delimiter)
     return env
   }
-}
-
-function runDescriptor(descriptor: LoginShellPathDescriptor, env: NodeJS.ProcessEnv): Promise<LoginShellPathOutcome> {
-  return new Promise((resolve) => {
-    execFile(
-      descriptor.file,
-      descriptor.args,
-      { env, timeout: descriptor.timeoutMs, maxBuffer: 1024 * 1024 },
-      (error, stdout) => {
-        const failure = error as (NodeJS.ErrnoException & { killed?: boolean; code?: number | string }) | null
-        resolve({
-          code: typeof failure?.code === 'number' ? failure.code : failure ? 1 : 0,
-          stdout: String(stdout ?? ''),
-          timedOut: failure?.killed === true,
-        })
-      },
-    )
-  })
 }
 
 /** Whether anything in the process group `pgid` leads is still running. */

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from 'child_process'
 import type { GitCommandResult } from './git'
+import { withGitExecutable } from './git-executable'
 import { killProcessTree } from './process-tree-kill'
 import type { ExecutionHost } from './hosts/execution-host'
 import { isWslDriveMountPath } from '../shared/host-paths'
@@ -440,11 +441,26 @@ function execGit(
     return execGitOnHost(host, cwd, args, envOverrides, kind, timeoutMs, options.stdin)
   }
 
+  // On Windows, the real git.exe rather than Git for Windows' launcher; see
+  // git-executable.ts.
+  const env = gitEnv(envOverrides, kind)
+  return withGitExecutable(env, (file) => execGitFile(file, cwd, args, env, timeoutMs, grouped, options.stdin))
+}
+
+function execGitFile(
+  file: string,
+  cwd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number | null,
+  grouped: boolean,
+  stdin: string | undefined,
+): Promise<ExecGitResult> {
   return new Promise((resolvePromise, reject) => {
     let timedOut = false
     let timer: NodeJS.Timeout | null = null
     const child = execFile(
-      'git',
+      file,
       [
         '-C',
         cwd,
@@ -457,7 +473,7 @@ function execGit(
         encoding: 'utf8',
         maxBuffer: 20 * 1024 * 1024,
         windowsHide: true,
-        env: gitEnv(envOverrides, kind),
+        env,
         ...(grouped ? { detached: true } : {}),
       },
       (error, stdout, stderr) => {
@@ -484,11 +500,11 @@ function execGit(
         killProcessTree(child, { processGroup: grouped })
       }, timeoutMs)
     }
-    if (options.stdin !== undefined) {
+    if (stdin !== undefined) {
       // git can exit before it has read everything (`apply` refusing a patch);
       // the EPIPE that follows is not the failure and must not go unhandled.
       child.stdin?.on('error', () => {})
-      child.stdin?.end(options.stdin)
+      child.stdin?.end(stdin)
     }
   })
 }
