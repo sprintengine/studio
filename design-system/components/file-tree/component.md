@@ -62,6 +62,7 @@ In the app: `FileTreeRow`, `FileTreeRootRow`, `FileTreePinnedRow` and
 | Selected (focus elsewhere) | `--resting`: `bg.selected-resting`, no edge                        |
 | Multi-select companion     | `--resting` — the cursor row alone is `--selected`                 |
 | Expanded                   | chevron rotated 90°; `aria-expanded="true"`                        |
+| Loading                    | the spinner in the chevron's slot, once a listing passes 160ms     |
 | Drop target                | `bg.selected` plus a 1px accent ring (workspace tree only)         |
 | Agent reading              | `--agent-reading`: `agent-trail.soft` (workspace tree only)        |
 | Agent editing              | `--agent-editing`: `agent-trail.soft-strong` (workspace tree only) |
