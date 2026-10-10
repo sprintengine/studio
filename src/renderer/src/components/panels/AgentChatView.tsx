@@ -182,6 +182,7 @@ import {
   readImageAttachment,
 } from './agentChat/imageAttachments'
 import { ConversationPendingDock, coversComposer, type ApprovalModeSwitch } from './agentChat/pendingDock'
+import { useQuestionTakeover } from './agentChat/questionTakeover'
 import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
 import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
 import { BackgroundTasksTrayRow } from './agentChat/backgroundTasksRow'
@@ -3008,17 +3009,28 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const dismissNotice = (notice: string) => setDismissedNotices((current) => new Set(current).add(notice))
   const billingNotice = apiKeyBillingNotice(projection.apiKeySource)
   const requestPending = pendingApprovalEntries.length > 0
-  // A question waiting takes the composer's place. The composer stays mounted
-  // behind it, unseen, so the draft — its words, pasted images, files and
-  // mentions — is exactly as it was once the question is answered.
-  const questionCoversComposer = pendingApprovalEntries.some(
-    (entry) => entry.status === 'pending' && coversComposer(entry),
-  )
   const draftHeld =
     draft.trim().length > 0 ||
     attachments.length > 0 ||
     draftMetadata.files.length > 0 ||
     draftMetadata.mentions.length > 0
+  // A question waiting takes the composer's place. The composer stays mounted
+  // behind it, unseen, so the draft — its words, pasted images, files and
+  // mentions — is exactly as it was once the question is answered. One that
+  // arrives mid-sentence waits for the typing to stop first, announced in the
+  // tray, so the rest of the word is not lost under it (questionTakeover.ts).
+  const coveringQuestionId =
+    pendingApprovalEntries.find((entry) => entry.status === 'pending' && coversComposer(entry))?.requestId ?? null
+  const composerBoxRef = useRef<HTMLDivElement | null>(null)
+  const questionTakeover = useQuestionTakeover({
+    questionKey: coveringQuestionId,
+    draftEmpty: !draftHeld,
+    composerFocused: () => {
+      const active = typeof document === 'undefined' ? null : document.activeElement
+      return Boolean(active && composerBoxRef.current?.contains(active))
+    },
+  })
+  const questionCoversComposer = questionTakeover.covers
   // The card held focus and has gone with its answer: the keyboard returns to
   // the field it came from, rather than to the page.
   const questionCoveredRef = useRef(false)
@@ -3556,6 +3568,22 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 busy={respondingRequestId !== null || !operate}
               />
 
+              {/* A question that arrived mid-sentence, waiting for the typing
+                to stop before it takes the box: said here so it never blocks
+                unseen, with the way to take it now. */}
+              {questionTakeover.waiting ? (
+                <ComposerTrayRow
+                  tone="warn"
+                  actions={
+                    <OutlineButton size="xs" onClick={questionTakeover.takeOver}>
+                      Answer now
+                    </OutlineButton>
+                  }
+                >
+                  The agent has a question. It takes the message box when you stop typing.
+                </ComposerTrayRow>
+              ) : null}
+
               {/* A turn a usage limit stopped: when the limit resets, and
                 the resume Studio can send the chat then. Read on this
                 computer, so only for a chat that runs here. */}
@@ -3629,6 +3657,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               </div>
             ) : null}
             <div
+              ref={composerBoxRef}
+              // Focus leaving the box is the typing over: a question waiting
+              // for it takes the box now.
+              onBlur={
+                questionTakeover.waiting
+                  ? (event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) questionTakeover.takeOver()
+                    }
+                  : undefined
+              }
               // The floating browser player parks clear of this box
               // (FloatingPlayer.clearOfComposer).
               data-chat-composer=""
@@ -3698,6 +3736,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   }}
                   onChange={(value, caret) => {
                     detachRecall()
+                    questionTakeover.noteDraftEdit()
                     setDraft(value)
                     setComposerCaret(caret)
                   }}
