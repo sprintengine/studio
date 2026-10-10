@@ -3,7 +3,7 @@ import type { IpcMain } from 'electron'
 import type { VersionControlProviderProbe } from '../../shared/version-control'
 import { binaryVersionProbeFrom, parseProbeOutput, probeBinaryVersion } from '../cli-runtime-install'
 import { hostRegistry } from '../hosts/host-registry'
-import { createDefaultGhRunner } from '../github/gh'
+import { sharedGhRunner } from '../github/gh'
 import { probeHostGh } from '../github/host-gh-status'
 import { isWslHostId } from '../../shared/execution-host'
 import type { HostGhStatus } from '../../shared/host-gh'
@@ -13,7 +13,7 @@ import { parseGhAuthLogin, probeVersionControlProviders, type VersionControlProb
 // the same gh runner the review paths use for auth (so a GUI-launched app finds a
 // Homebrew/nvm gh, and gh's own credential store is the single auth source).
 function createVersionControlProbeDeps(): VersionControlProbeDeps {
-  const gh = createDefaultGhRunner()
+  const gh = sharedGhRunner()
   return {
     probeVersion: (binary) => probeBinaryVersion(binary),
     async readGhLogin() {

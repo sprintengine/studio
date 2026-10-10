@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 
 import {
   createLoginShellPathResolver,
@@ -18,7 +18,20 @@ import {
   lastKnownLoginShellPath,
   type LoginShellPathDescriptor,
   type LoginShellPathOutcome,
+  sharedLoginShellPath,
 } from './login-shell-path'
+import { runSpawnDescriptor, type RunOutcome } from './process-run'
+
+// The shared lookup starts its shells through the process runner; nothing else
+// in this file does.
+vi.mock('./process-run', () => ({ runSpawnDescriptor: vi.fn() }))
+const runShell = vi.mocked(runSpawnDescriptor)
+
+afterEach(() => {
+  sharedLoginShellPath().invalidate()
+  runShell.mockReset()
+  vi.unstubAllEnvs()
+})
 
 const answered = (path: string): LoginShellPathOutcome => ({
   code: 0,
@@ -235,4 +248,49 @@ test('a resolved login PATH is what the next synchronous spawn reads', async () 
   })
   await resolver.resolve({})
   assert.equal(lastKnownLoginShellPath(), '/opt/homebrew/bin:/Users/dev/.local/bin:/usr/bin')
+})
+
+const shellPrinted = (path: string | null): RunOutcome => ({
+  code: path === null ? 1 : 0,
+  stdout: path === null ? '' : `\n${LOGIN_PATH_SENTINEL}${path}\n`,
+  stderr: '',
+  timedOut: false,
+})
+
+test('CLI detection, gh and the local-server runner share one login shell for the whole process', async () => {
+  vi.stubEnv('SHELL', '/bin/zsh')
+  let release: (outcome: RunOutcome) => void = () => undefined
+  runShell.mockImplementation(() => new Promise((resolve) => (release = resolve)))
+  // Each caller fetches the lookup the way its module does, at its own time.
+  const callers = [sharedLoginShellPath(), sharedLoginShellPath(), sharedLoginShellPath()]
+  const pending = callers.map((resolver) => resolver.resolve({ PATH: '/usr/bin' }))
+  release(shellPrinted('/opt/homebrew/bin:/usr/bin'))
+  assert.deepEqual(await Promise.all(pending), Array(3).fill('/opt/homebrew/bin:/usr/bin'))
+  assert.equal(await sharedLoginShellPath().resolve({}), '/opt/homebrew/bin:/usr/bin')
+  assert.equal(runShell.mock.calls.length, 1)
+  assert.equal(runShell.mock.calls[0]?.[0].file, '/bin/zsh')
+})
+
+test("one caller's invalidate makes the next caller, whichever it is, ask a shell again", async () => {
+  vi.stubEnv('SHELL', '/bin/zsh')
+  let path = '/usr/bin'
+  runShell.mockImplementation(async () => shellPrinted(path))
+  assert.equal(await sharedLoginShellPath().resolve({}), '/usr/bin')
+  // An install appended a directory to the shell config, and CLI detection
+  // dropped the answer before re-detecting.
+  path = '/Users/dev/.local/bin:/usr/bin'
+  sharedLoginShellPath().invalidate()
+  assert.equal(await sharedLoginShellPath().resolve({}), '/Users/dev/.local/bin:/usr/bin', 'gh sees it too')
+  assert.equal(runShell.mock.calls.length, 2)
+})
+
+test('a shared lookup no shell answered is asked again by the next caller', async () => {
+  vi.stubEnv('SHELL', '/bin/zsh')
+  let answers = false
+  runShell.mockImplementation(async () => shellPrinted(answers ? '/usr/local/bin:/usr/bin' : null))
+  assert.equal(await sharedLoginShellPath().resolve({}), null)
+  answers = true
+  assert.equal(await sharedLoginShellPath().resolve({}), '/usr/local/bin:/usr/bin')
+  // zsh then bash for the failure, zsh alone for the answer.
+  assert.equal(runShell.mock.calls.length, 3)
 })

@@ -3,6 +3,7 @@ import { access, stat } from 'node:fs/promises'
 import { delimiter, isAbsolute, join, resolve } from 'node:path'
 
 import type { PluginInstallPlatform } from '../shared/plugin-manifest'
+import { runSpawnDescriptor } from './process-run'
 
 /**
  * The PATH a person's own terminal would have, resolved once, and binary lookup
@@ -16,6 +17,11 @@ import type { PluginInstallPlatform } from '../shared/plugin-manifest'
  * only thing any of those shells contributed was their PATH, and a PATH does
  * not change between one CLI and the next. So one shell prints it, and every
  * lookup after that is a directory walk in this process.
+ *
+ * One resolver serves the whole process (`sharedLoginShellPath`). CLI
+ * detection, the gh runner and the local-server runner each used to keep their
+ * own, so one session started a shell per caller — three or four `$SHELL -ilc`
+ * runs at boot, each loading the same `.zshrc` — to learn one PATH.
  *
  * The memo lives for the app session. It is dropped on a forced refresh (an
  * install or an explicit re-check in Settings), because an installer is exactly
@@ -233,4 +239,25 @@ export function createLoginShellPathResolver(deps: {
       memo = null
     },
   }
+}
+
+let sharedResolver: LoginShellPathResolver | null = null
+
+/**
+ * The process's one login-shell PATH lookup. Every caller gets the same answer
+ * and every concurrent first caller waits on the same shell; `invalidate()`
+ * drops it for all of them, which is what each caller wants anyway — they all
+ * invalidate after something that may have changed the shell config, and the
+ * PATH that follows is everyone's. The first caller's environment starts the
+ * shell; callers merge their own PATH after its answer (`searchDirectories`),
+ * so none depends on its entries being in the shell's.
+ *
+ * Per process: a server running apart from the desktop asks its own shell.
+ */
+export function sharedLoginShellPath(): LoginShellPathResolver {
+  sharedResolver ??= createLoginShellPathResolver({
+    run: (descriptor, env) => runSpawnDescriptor(descriptor, { env, timeoutMs: descriptor.timeoutMs }),
+    shell: () => process.env.SHELL,
+  })
+  return sharedResolver
 }

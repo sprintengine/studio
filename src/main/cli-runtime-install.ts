@@ -15,7 +15,7 @@ import { knownDefaultWslDistro, resolveDefaultWslDistro, wslLoginScript, wslScri
 import { hostRegistry } from './hosts/host-registry'
 import { LOCAL_HOST_ID, distroOfHostId, isWslHostId, type ExecutionHostId } from '../shared/execution-host'
 import { ansiPlainText } from '../shared/conversation/ansi'
-import { createLoginShellPathResolver, findExecutable, searchDirectories } from './login-shell-path'
+import { findExecutable, searchDirectories, sharedLoginShellPath } from './login-shell-path'
 import { forgetSharedGhLocation } from './github/gh'
 import { access, constants as fsConstants } from 'node:fs/promises'
 
@@ -232,10 +232,7 @@ export type ProbeVerdict = {
 
 // The login-shell PATH for the whole app session (see login-shell-path.ts): one
 // shell answers it, every binary lookup after that is done in this process.
-const loginShellPath = createLoginShellPathResolver({
-  run: (descriptor, env) => runDescriptor(descriptor, undefined, env, descriptor.timeoutMs),
-  shell: () => process.env.SHELL,
-})
+const loginShellPath = sharedLoginShellPath()
 
 /**
  * Drop the session's login-shell PATH so the next probe asks a shell again.
