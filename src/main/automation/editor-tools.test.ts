@@ -125,7 +125,6 @@ test('editor.open sorts files into opened, awaiting_owner and refused, and sends
         { path: join(outside, 'other.txt') },
         { path: 'src/missing.ts' },
       ],
-      note: 'The retry loop',
     },
     agent,
   )
@@ -145,7 +144,6 @@ test('editor.open sorts files into opened, awaiting_owner and refused, and sends
   assert.equal(files[0].lineCount, 20)
   assert.equal(reveals.length, 1)
   const sent = reveals[0]
-  assert.equal(sent.note, 'The retry loop')
   assert.deepEqual(
     sent.files.map((file) => file.path),
     [join(repo, 'src', 'a.ts'), join(outside, 'fix.patch')],
@@ -183,7 +181,6 @@ test('the arguments are checked before anything is resolved', async () => {
   assert.equal((await open.handler({ files: [] }, agent)).isError, true)
   assert.equal((await open.handler({ files: Array(9).fill({ path: 'src/a.ts' }) }, agent)).isError, true)
   assert.equal((await open.handler({ files: [{ path: 'src/a.ts', range: { startLine: 0 } }] }, agent)).isError, true)
-  assert.equal((await open.handler({ files: [{ path: 'src/a.ts' }], note: 'x'.repeat(141) }, agent)).isError, true)
   // Bound connections cannot reach into another workspace.
   const other = await open.handler({ files: [{ path: 'src/a.ts' }], workspaceId: 'ws-2' }, agent)
   assert.equal(structured(other).error && (structured(other).error as { code: string }).code, 'forbidden')

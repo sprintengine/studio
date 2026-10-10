@@ -98,8 +98,7 @@ When you want the person to look at specific code, open it for them instead of
 pasting paths into your reply. `editor_open` takes up to eight `files`, each a
 `path` (absolute, or relative to your working directory) with an optional
 1-based `range` (`startLine`, `endLine`); the editor scrolls there and briefly
-highlights the lines. Add a `note` of one line saying why. Pick the few files
-that matter — three out of forty — rather than everything you touched.
+highlights the lines. Pick the few files that matter — three out of forty — rather than everything you touched.
 
 `editor_open_diff` opens the diff viewer on your own changes: by default only
 the files in your changelist, `only: "all"` for every change in your checkout.

@@ -2,11 +2,9 @@ import { dirname } from 'node:path'
 
 import {
   clampEditorRange,
-  EDITOR_NOTE_MAX_CHARS,
   EDITOR_OPEN_MAX_FILES,
   editorFileName,
   parseEditorLocation,
-  parseEditorNote,
   type EditorDiffChanges,
   type EditorLocation,
   type EditorRevealDiffTarget,
@@ -155,12 +153,6 @@ const LOCATION_SCHEMA = {
   },
   required: ['path'],
   additionalProperties: false,
-} as const
-
-const NOTE_SCHEMA = {
-  type: 'string',
-  maxLength: EDITOR_NOTE_MAX_CHARS,
-  description: `One line shown above the editor, e.g. "The retry loop you asked about". At most ${EDITOR_NOTE_MAX_CHARS} characters.`,
 } as const
 
 const WORKSPACE_SCHEMA = {
@@ -365,8 +357,6 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
       if (!parsed.ok) return failure('invalid_arguments', parsed.message)
       locations.push(parsed.value)
     }
-    const note = parseEditorNote(args.note)
-    if (!note.ok) return failure('invalid_arguments', note.message)
 
     const scope = scopeOf(workspaceId, context)
     const classified = await classifyLocations(scope, locations)
@@ -405,7 +395,6 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
     const { shown } = await deps.reveal({
       workspaceId,
       agentName: scope.agentName,
-      note: note.value,
       files,
       awaiting,
       diff,
@@ -461,8 +450,6 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
     if (args.only !== undefined && args.only !== 'mine' && args.only !== 'all') {
       return failure('invalid_arguments', '`only` must be "mine" or "all".')
     }
-    const note = parseEditorNote(args.note)
-    if (!note.ok) return failure('invalid_arguments', note.message)
     let focus: EditorLocation | null = null
     if (args.focus !== undefined) {
       const parsed = parseEditorLocation(args.focus)
@@ -623,7 +610,6 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
     const { shown } = await deps.reveal({
       workspaceId,
       agentName: scope.agentName,
-      note: note.value,
       files: [],
       awaiting: [],
       diff,
@@ -700,7 +686,6 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
             items: LOCATION_SCHEMA,
             description: 'The locations, in the order to show them. The first ends up in front.',
           },
-          note: NOTE_SCHEMA,
           workspaceId: WORKSPACE_SCHEMA,
         },
         required: ['files'],
@@ -730,7 +715,6 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
             description: 'Show only these files (absolute, cwd-relative or repo-relative).',
           },
           focus: { ...LOCATION_SCHEMA, description: 'The file and lines to land on.' },
-          note: NOTE_SCHEMA,
           workspaceId: WORKSPACE_SCHEMA,
         },
         additionalProperties: false,

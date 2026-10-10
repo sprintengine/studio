@@ -36,11 +36,10 @@ function harness(windowIds: string[], waitMs = 30) {
   }
 }
 
-const request = (workspaceId: string, note: string | null = null): Omit<EditorRevealRequest, 'requestId'> => ({
+const request = (workspaceId: string, name = 'a.ts'): Omit<EditorRevealRequest, 'requestId'> => ({
   workspaceId,
   agentName: 'Claude',
-  note,
-  files: [{ path: '/Users/dev/repo/a.ts', displayPath: 'a.ts', name: 'a.ts', range: { startLine: 3 } }],
+  files: [{ path: `/Users/dev/repo/${name}`, displayPath: name, name, range: { startLine: 3 } }],
   awaiting: [],
   diff: null,
 })
@@ -61,15 +60,15 @@ test('the window showing the workspace opens it and says what the person could s
 test('no window showing it: nothing is opened now, the request waits, and the sidebar is told', async () => {
   const h = harness(['win-a'])
   h.answer((target, payload) => h.broker.handleAck(target, { requestId: payload.requestId, outcome: 'declined' }))
-  const result = await h.broker.reveal(request('ws-1', 'first'))
+  const result = await h.broker.reveal(request('ws-1', 'first.ts'))
   assert.deepEqual(result, { shown: 'not_visible' })
   assert.deepEqual(h.broker.pendingWorkspaceIds(), ['ws-1'])
   assert.deepEqual(h.pendingBroadcasts.at(-1), ['ws-1'])
 
   // Latest wins: the newest thing the agent wanted to show is the one kept.
-  await h.broker.reveal(request('ws-1', 'second'))
+  await h.broker.reveal(request('ws-1', 'second.ts'))
   const claimed = h.broker.claimPending('ws-1')
-  assert.equal(claimed?.note, 'second')
+  assert.equal(claimed?.files[0].name, 'second.ts')
   // Claimed once: a second window switching to it gets nothing.
   assert.equal(h.broker.claimPending('ws-1'), null)
   assert.deepEqual(h.pendingBroadcasts.at(-1), [])

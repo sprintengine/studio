@@ -13,7 +13,7 @@ import type { EditorRange, EditorViewState } from '../../../shared/editor-reveal
 //    they switch to it — the range has to wait for them, not for a timer.
 //  - Which mounted editors exist, so "is the person typing" and editor.state
 //    can be answered without reaching into a component.
-//  - The one-line note / "wants to show you" strip per workspace.
+//  - The "wants to show you" strip per workspace.
 //  - Which workspaces hold a reveal no window has shown yet, for the sidebar.
 
 // ─── Landing: where an editor goes once it has the file ──────────────────────
@@ -259,12 +259,11 @@ export function revealEditorRange(
   return clear
 }
 
-// ─── Notices: the note, and "wants to show you" ──────────────────────────────
+// ─── Notices: "wants to show you" ────────────────────────────────────────────
 
 export type AgentRevealNotice = {
   requestId: string
   agentName: string | null
-  note: string | null
   /** Files outside the workspace, waiting on Open or Dismiss. */
   awaiting: Array<{ path: string; displayPath: string; name: string; range: EditorRange | null }>
 }
@@ -277,7 +276,7 @@ const emitNotices = (): void => {
 
 /** Latest wins: a second reveal replaces the first one's strip. */
 export function setAgentRevealNotice(workspaceId: string, notice: AgentRevealNotice | null): void {
-  if (notice && (notice.note || notice.awaiting.length > 0)) notices.set(workspaceId, notice)
+  if (notice && notice.awaiting.length > 0) notices.set(workspaceId, notice)
   else notices.delete(workspaceId)
   emitNotices()
 }

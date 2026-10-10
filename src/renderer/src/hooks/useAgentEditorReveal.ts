@@ -101,15 +101,12 @@ async function openRevealedFile(
 /** Open everything a reveal carries. Pure routing: the checks were main's. */
 export async function performEditorReveal(request: EditorRevealRequest, mode: RevealMode): Promise<void> {
   const { workspaceId } = request
-  // Latest wins for the note: the strip says what the newest reveal is about,
-  // and one with no note clears the last one's. An Open / Dismiss question the
-  // person has not answered yet stays until they do, or until a newer reveal
-  // asks its own.
+  // An Open / Dismiss question the person has not answered yet stays until
+  // they do, or until a newer reveal asks its own.
   const previous = getAgentRevealNotice(workspaceId)
   setAgentRevealNotice(workspaceId, {
     requestId: request.requestId,
     agentName: request.agentName,
-    note: request.note,
     awaiting: request.awaiting.length > 0 ? request.awaiting : (previous?.awaiting ?? []),
   })
 
