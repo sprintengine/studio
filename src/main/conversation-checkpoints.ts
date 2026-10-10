@@ -24,6 +24,12 @@ const PREFIX = 'refs/sprintengine/checkpoints/'
 const REF_BATCH = 1000
 const LSTAT_BATCH = 64
 const SIDECARS = ['.sprintengine', '.multi-code']
+// The line a checkpoint's message records HEAD on, so a turn can tell its own
+// work from what a pull or rebase brought in (see `authoredPaths`).
+const HEAD_TRAILER = 'Head:'
+// Windows caps a command line at 32,767 characters; leave room for the rest of
+// a diff's arguments when paths are passed as pathspecs.
+const PATHSPEC_CHARS = 24_000
 // The copy must never write a split index into the repository's git
 // directory, and a filesystem monitor's answers belong to the real index.
 // Every stat field is compared, whatever runs the snapshot: Linux git on a
@@ -58,7 +64,9 @@ export class ConversationCheckpoints {
       const guard = await this.checkSize(root)
       if (guard) return { ok: false, skipped: true, message: guard }
       const ref = this.ref(key, turnSeq, point)
-      await this.git(root, ['update-ref', ref, await this.commit(root, await this.worktreeTree(root), turnSeq, point)])
+      const head = await this.head(root)
+      const tree = await this.worktreeTree(root)
+      await this.git(root, ['update-ref', ref, await this.commit(root, tree, turnSeq, point, head)])
       return { ok: true, ref }
     } catch (error) {
       return { ok: false, message: errorMessage(error, CHECKPOINT_FAILED) }
@@ -70,7 +78,7 @@ export class ConversationCheckpoints {
       const root = await this.root(input.key.workspaceRoot)
       const before = this.ref(input.key, input.turnSeq, 'pre')
       const after = this.ref(input.key, input.turnSeq, 'post')
-      const diff = await this.diff(root, before, after)
+      const diff = await this.diff(root, before, after, (await this.authoredPaths(root, before, after)) ?? undefined)
       if (input.path !== undefined && !diff.files.some((file) => file.path === input.path))
         return { ok: false, message: 'File is not part of this turn.' }
       if (input.path !== undefined) {
@@ -217,10 +225,72 @@ export class ConversationCheckpoints {
     }
   }
 
-  private async commit(root: string, tree: string, turnSeq: number, point: string): Promise<string> {
-    return (
-      await this.git(root, ['commit-tree', tree, '-m', `Conversation checkpoint ${turnSeq} ${point}`], IDENTITY)
-    ).trim()
+  /**
+   * HEAD is recorded as a line of the message, never as a parent: a parent
+   * would make every checkpoint reachable from the branch's real history, keep
+   * commits a rebase dropped alive for as long as the checkpoint lives, and
+   * break the "parentless, nothing references them" rule expiry relies on.
+   */
+  private async commit(
+    root: string,
+    tree: string,
+    turnSeq: number,
+    point: string,
+    head: string | null = null,
+  ): Promise<string> {
+    const message = ['-m', `Conversation checkpoint ${turnSeq} ${point}`]
+    if (head) message.push('-m', `${HEAD_TRAILER} ${head}`)
+    return (await this.git(root, ['commit-tree', tree, ...message], IDENTITY)).trim()
+  }
+
+  private async head(root: string): Promise<string | null> {
+    const result = await runGitCommand(root, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+    return (result.ok && result.stdout.trim()) || null
+  }
+
+  /**
+   * The paths the turn's own work touched when HEAD moved during it, or null
+   * when every changed path is the turn's.
+   *
+   * An agent that runs `git pull` or `git rebase` moves HEAD, and the pre→post
+   * diff then carries every file the pulled commits changed, so a one-line fix
+   * read as a thousand changed files. The turn's work is what is left once
+   * those commits are set aside: edits uncommitted at either end, commits that
+   * left HEAD (a reset, or the side a rebase rewrote), and commits made since
+   * the "pre" capture. A pulled commit is older than the capture, so its paths
+   * are not listed. Remerge diff names a merge's paths only where the result
+   * differs from git's own automatic merge, so a conflict fix counts and the
+   * cleanly merged upstream changes do not.
+   *
+   * Null keeps the full diff: a checkpoint written before HEAD was recorded,
+   * an unborn HEAD at either end, HEAD unchanged (the common case, which costs
+   * one read), a git older than 2.36 without remerge diff, or any step failing.
+   * Revert never asks: it restores the whole tree whatever HEAD did.
+   */
+  private async authoredPaths(root: string, before: string, after: string): Promise<string[] | null> {
+    try {
+      const records = (await this.git(root, ['log', '--no-walk=unsorted', '-z', '--format=%ct%n%B', before, after]))
+        .split('\0')
+        .map((record) => ({
+          // The capture's own committer time: commits made after it are the turn's.
+          capturedAt: record.slice(0, record.indexOf('\n')),
+          head: new RegExp(`^${HEAD_TRAILER} ([0-9a-f]+)$`, 'mu').exec(record)?.[1],
+        }))
+      const [start, end] = records
+      if (!start?.head || !end?.head || start.head === end.head || !/^\d+$/u.test(start.capturedAt)) return null
+      const list = async (args: string[]) =>
+        (await this.git(root, [...args, '--name-only', '-z', '--no-renames', '--no-ext-diff'])).split('\0')
+      const remerge = ['log', '--format=', '--diff-merges=remerge']
+      const lists = await Promise.all([
+        list(['diff', start.head, before]),
+        list(['diff', end.head, after]),
+        list([...remerge, `${end.head}..${start.head}`]),
+        list([...remerge, `--since=@${start.capturedAt}`, `${start.head}..${end.head}`]),
+      ])
+      return [...new Set(lists.flat().filter(Boolean))].sort()
+    } catch {
+      return null
+    }
   }
 
   /**
@@ -426,30 +496,52 @@ export class ConversationCheckpoints {
     }
   }
 
-  private async diff(root: string, before: string, after: string): Promise<ConversationCheckpointDiff> {
+  /**
+   * `paths` narrows the diff to those repository paths, a batch per command
+   * line. Narrowing in git rather than here keeps a pull's thousand files from
+   * being diffed line by line only to be thrown away.
+   */
+  private async diff(
+    root: string,
+    before: string,
+    after: string,
+    paths?: string[],
+  ): Promise<ConversationCheckpointDiff> {
+    if (paths === undefined) return { submodulesExcluded: true, files: await this.diffFiles(root, before, after, []) }
+    const files: ConversationCheckpointFile[] = []
+    for (const batch of pathspecBatches(paths)) files.push(...(await this.diffFiles(root, before, after, batch)))
+    return { submodulesExcluded: true, files }
+  }
+
+  private async diffFiles(
+    root: string,
+    before: string,
+    after: string,
+    pathspecs: string[],
+  ): Promise<ConversationCheckpointFile[]> {
     const base = ['diff', '--no-ext-diff', '--no-renames', '--ignore-submodules=all']
-    const stats = (await this.git(root, [...base, '--numstat', '-z', before, after])).split('\0').filter(Boolean)
-    const statuses = (await this.git(root, [...base, '--name-status', '-z', before, after])).split('\0')
+    const limit = pathspecs.length ? ['--', ...pathspecs] : []
+    const stats = (await this.git(root, [...base, '--numstat', '-z', before, after, ...limit]))
+      .split('\0')
+      .filter(Boolean)
+    const statuses = (await this.git(root, [...base, '--name-status', '-z', before, after, ...limit])).split('\0')
     const status = new Map<string, ConversationCheckpointFile['status']>()
     for (let i = 0; i + 1 < statuses.length; i += 2)
       status.set(statuses[i + 1], statuses[i] === 'A' ? 'added' : statuses[i] === 'D' ? 'deleted' : 'modified')
-    return {
-      submodulesExcluded: true,
-      files: stats.map((line) => {
-        const first = line.indexOf('\t')
-        const second = line.indexOf('\t', first + 1)
-        const added = line.slice(0, first)
-        const removed = line.slice(first + 1, second)
-        const path = line.slice(second + 1)
-        return {
-          path,
-          status: status.get(path) ?? 'modified',
-          addedLines: Number(added) || 0,
-          removedLines: Number(removed) || 0,
-          binary: added === '-' || removed === '-',
-        }
-      }),
-    }
+    return stats.map((line) => {
+      const first = line.indexOf('\t')
+      const second = line.indexOf('\t', first + 1)
+      const added = line.slice(0, first)
+      const removed = line.slice(first + 1, second)
+      const path = line.slice(second + 1)
+      return {
+        path,
+        status: status.get(path) ?? 'modified',
+        addedLines: Number(added) || 0,
+        removedLines: Number(removed) || 0,
+        binary: added === '-' || removed === '-',
+      }
+    })
   }
 
   private async git(cwd: string, args: string[], env?: NodeJS.ProcessEnv, stdin?: string): Promise<string> {
@@ -457,6 +549,25 @@ export class ConversationCheckpoints {
     if (!result.ok) throw new Error(result.message || result.stderr || 'Checkpoint git operation failed.')
     return result.stdout
   }
+}
+
+/** Literal, root-relative pathspecs split so each batch fits on one command line. */
+function pathspecBatches(paths: string[]): string[][] {
+  const batches: string[][] = []
+  let batch: string[] = []
+  let length = 0
+  for (const path of paths) {
+    const pathspec = `:(top,literal)${path}`
+    if (batch.length && length + pathspec.length + 1 > PATHSPEC_CHARS) {
+      batches.push(batch)
+      batch = []
+      length = 0
+    }
+    batch.push(pathspec)
+    length += pathspec.length + 1
+  }
+  if (batch.length) batches.push(batch)
+  return batches
 }
 
 function safePath(root: string, path: string): string {

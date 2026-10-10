@@ -567,3 +567,146 @@ test('a file whose name starts with two dots is in the work tree, and the turn k
     await rm(f.directory, { recursive: true, force: true })
   }
 })
+
+// ── A turn that moves HEAD ────────────────────────────────────────────────────
+
+/** A commit dated an hour ago, the way a colleague's pushed commit arrives. */
+const EARLIER = { GIT_AUTHOR_DATE: '@1700000000 +0000', GIT_COMMITTER_DATE: '@1700000000 +0000' }
+
+async function gitWith(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
+  const result = await runGitCommand(cwd, args, env)
+  assert.ok(result.ok, result.message ?? result.stderr)
+  return result.stdout
+}
+
+/** The repository plus a clone it pulls from, which already holds commits it has not seen. */
+async function repositoryWithUpstream(upstreamFiles: Record<string, string>) {
+  const f = await repository()
+  const upstream = join(f.directory, 'upstream')
+  await git(f.directory, ['clone', '--quiet', f.root, upstream])
+  await git(upstream, ['config', 'user.name', 'Colleague'])
+  await git(upstream, ['config', 'user.email', 'dev@example.com'])
+  for (const [path, content] of Object.entries(upstreamFiles)) await writeFile(join(upstream, path), content)
+  await git(upstream, ['add', '.'])
+  await gitWith(upstream, ['commit', '-m', 'Upstream work'], EARLIER)
+  const branch = (await git(f.root, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
+  await git(f.root, ['remote', 'add', 'origin', upstream])
+  await git(f.root, ['config', 'pull.rebase', 'false'])
+  return { ...f, upstream, branch }
+}
+
+async function turnFiles(checkpoints: ConversationCheckpoints, key: { workspaceRoot: string }, turnSeq: number) {
+  const diff = await checkpoints.getTurnDiff({ key: key as never, turnSeq })
+  assert.ok(diff.ok, diff.ok ? '' : diff.message)
+  return diff.diff.files.map((file) => file.path)
+}
+
+test('a pull during a turn leaves the pulled files out of the turn, while revert still sees the whole tree', async () => {
+  const f = await repositoryWithUpstream({ 'pulled.txt': 'from upstream\n', 'deleted.txt': 'upstream edit\n' })
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    await writeFile(join(f.root, 'existing.txt'), 'agent edit\n')
+    await git(f.root, ['pull', '--quiet', '--no-edit', 'origin', f.branch])
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    assert.deepEqual(await turnFiles(checkpoints, f.key, 1), ['existing.txt'])
+    const pulled = await checkpoints.getTurnDiff({ key: f.key, turnSeq: 1, path: 'pulled.txt' })
+    assert.equal(pulled.ok, false, 'a pulled file is not part of the turn')
+    const preview = await checkpoints.revert({ key: f.key, turnSeq: 1 })
+    assert.ok(preview.ok)
+    assert.deepEqual(preview.files.map((file) => file.path).sort(), ['deleted.txt', 'existing.txt', 'pulled.txt'])
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
+test('a rebase during a turn counts the conflict it resolved and not the commits it rebased onto', async () => {
+  const f = await repositoryWithUpstream({ 'existing.txt': 'upstream line\n', 'pulled.txt': 'from upstream\n' })
+  try {
+    await writeFile(join(f.root, 'existing.txt'), 'local line\n')
+    await gitWith(f.root, ['commit', '-am', 'Local work'], EARLIER)
+    const checkpoints = new ConversationCheckpoints()
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    await git(f.root, ['fetch', '--quiet', 'origin'])
+    const conflicted = await runGitCommand(f.root, ['rebase', `origin/${f.branch}`])
+    assert.equal(conflicted.ok, false, 'the rebase stops on the conflict')
+    await writeFile(join(f.root, 'existing.txt'), 'local line\nupstream line\n')
+    await git(f.root, ['add', 'existing.txt'])
+    await gitWith(f.root, ['rebase', '--continue'], { GIT_EDITOR: 'true' })
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    assert.deepEqual(await turnFiles(checkpoints, f.key, 1), ['existing.txt'])
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
+test('a commit the agent makes during a turn stays in the turn beside a merge it pulled', async () => {
+  const f = await repositoryWithUpstream({ 'pulled.txt': 'from upstream\n' })
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    await writeFile(join(f.root, 'created.txt'), 'agent file\n')
+    await git(f.root, ['add', 'created.txt'])
+    await git(f.root, ['commit', '-m', 'Agent work'])
+    await git(f.root, ['pull', '--quiet', '--no-edit', 'origin', f.branch])
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    assert.deepEqual(await turnFiles(checkpoints, f.key, 1), ['created.txt'])
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
+test('a turn that leaves HEAD where it was keeps every changed file, on a parentless checkpoint naming HEAD', async () => {
+  const f = await repository()
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    const head = (await git(f.root, ['rev-parse', 'HEAD'])).trim()
+    const pre = await checkpoints.capture(f.key, 1, 'pre')
+    assert.ok(pre.ok)
+    await writeFile(join(f.root, 'existing.txt'), 'agent edit\n')
+    await writeFile(join(f.root, 'created.txt'), 'created\n')
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    assert.deepEqual(await turnFiles(checkpoints, f.key, 1), ['created.txt', 'existing.txt'])
+    assert.equal((await git(f.root, ['rev-list', '--parents', '-n', '1', pre.ref])).trim().split(' ').length, 1)
+    assert.match(await git(f.root, ['log', '-1', '--format=%B', pre.ref]), new RegExp(`^Head: ${head}$`, 'mu'))
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
+test('a checkpoint written before HEAD was recorded keeps the full diff of a turn that pulled', async () => {
+  const f = await repositoryWithUpstream({ 'pulled.txt': 'from upstream\n' })
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    const pre = await checkpoints.capture(f.key, 1, 'pre')
+    assert.ok(pre.ok)
+    // What earlier builds wrote: the same tree, no HEAD line.
+    const tree = (await git(f.root, ['rev-parse', `${pre.ref}^{tree}`])).trim()
+    const legacy = (await git(f.root, ['commit-tree', tree, '-m', 'Conversation checkpoint 1 pre'])).trim()
+    await git(f.root, ['update-ref', pre.ref, legacy])
+    await writeFile(join(f.root, 'existing.txt'), 'agent edit\n')
+    await git(f.root, ['pull', '--quiet', '--no-edit', 'origin', f.branch])
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    assert.deepEqual(await turnFiles(checkpoints, f.key, 1), ['existing.txt', 'pulled.txt'])
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
+test('a turn whose own files would overflow one command line is diffed in batches, every file kept', async () => {
+  const f = await repositoryWithUpstream({ 'pulled.txt': 'from upstream\n' })
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    const names = Array.from(
+      { length: 400 },
+      (_, i) => `${'generated-module-'.repeat(5)}${String(i).padStart(3, '0')}.ts`,
+    )
+    await Promise.all(names.map((name) => writeFile(join(f.root, name), `export const n = ${name.length}\n`)))
+    await git(f.root, ['pull', '--quiet', '--no-edit', 'origin', f.branch])
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    assert.deepEqual(await turnFiles(checkpoints, f.key, 1), names)
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
