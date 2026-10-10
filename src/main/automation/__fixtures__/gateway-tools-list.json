@@ -114,11 +114,11 @@
     },
     {
       "name": "editor.open",
-      "sha256": "9d7e25ebb80f232bfb850cf9b98dba8c9b2d0f812e1f38284921dfe0ea459500"
+      "sha256": "49c52cd40037b4bc1994daab378e670059c9fa4b651c92d1f21467787ff9e80e"
     },
     {
       "name": "editor.open_diff",
-      "sha256": "0e7317af209ddf6d533ec1d35e2c464f64dd7506070dc02e247bee388f8a4274"
+      "sha256": "37d5f17bfb398df9689663193eea3e4c9dbfd466dce6270dd46ffa8982744cb1"
     },
     {
       "name": "editor.state",
@@ -424,11 +424,11 @@
     },
     {
       "name": "editor.open",
-      "sha256": "9d7e25ebb80f232bfb850cf9b98dba8c9b2d0f812e1f38284921dfe0ea459500"
+      "sha256": "49c52cd40037b4bc1994daab378e670059c9fa4b651c92d1f21467787ff9e80e"
     },
     {
       "name": "editor.open_diff",
-      "sha256": "0e7317af209ddf6d533ec1d35e2c464f64dd7506070dc02e247bee388f8a4274"
+      "sha256": "37d5f17bfb398df9689663193eea3e4c9dbfd466dce6270dd46ffa8982744cb1"
     },
     {
       "name": "editor.state",
