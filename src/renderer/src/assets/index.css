@@ -4149,10 +4149,13 @@ body:has([data-selection-pane]:focus-within)
   text-decoration: line-through;
 }
 
+/* A span that wraps keeps its pill on every line, as a reply's inline code does. */
 .composer-markdown .cm-md-code {
   border-radius: var(--radius-xs);
   background: var(--bg-active);
   padding: 0.05em 0.3em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
   font-size: 0.9em;
   color: var(--text-strong);
 }

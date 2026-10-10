@@ -941,7 +941,7 @@ export function TurnErrorBlock({
   ) : command ? (
     <>
       The session could not authenticate — usually a sign your sign-in expired. Run{' '}
-      <code className="rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] px-[0.3em] py-[0.05em] font-mono text-[0.9em] text-[color:var(--text-strong)]">
+      <code className="rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] px-[0.3em] py-[0.05em] font-mono text-[0.9em] text-[color:var(--text-strong)] box-decoration-clone">
         {command}
       </code>{' '}
       in a terminal, then retry. {kept}

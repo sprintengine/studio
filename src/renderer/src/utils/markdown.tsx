@@ -197,7 +197,7 @@ function chatScale(steps: {
     // A neutral pill in strong ink: an identifier is one of the things a reader
     // scans a reply for, so it stands out by contrast, not by a status hue. The
     // mono face runs wide, so it steps under the surrounding text's size.
-    code: `rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] px-[0.3em] py-[0.05em] text-[0.9em] ${CHAT_INK_STRONG} break-words [pre_&]:text-[1em]`,
+    code: `rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] px-[0.3em] py-[0.05em] text-[0.9em] ${CHAT_INK_STRONG} break-words box-decoration-clone [pre_&]:text-[1em]`,
     strong: `font-semibold ${CHAT_INK_STRONG}`,
     // Emphasis is a change of voice, not of importance: it keeps the ink it is in.
     em: 'italic',
@@ -233,8 +233,10 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     list: `mb-4 ml-6 space-y-2 ${baseTextClass}`,
     pre: 'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-body leading-6 text-[color:var(--terminal-fg)]',
     // A long path wraps instead of pushing the line box wider than the column;
-    // `break-words` keeps a short token whole and moves it down instead.
-    code: 'rounded-xs border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words',
+    // `break-words` keeps a short token whole and moves it down instead. Each
+    // scale's pill is cloned onto every line it wraps across, so no fragment
+    // is left with an open end and padding on one side only.
+    code: 'rounded-xs border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words box-decoration-clone',
     strong: 'font-semibold text-[color:var(--text-strong)]',
     em: 'italic',
     blockquote: 'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
@@ -261,7 +263,7 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     pre: 'my-4 overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-micro leading-[1.7] text-[color:var(--text-default)]',
     // Inline code sits inside running text, so it matches that text's size;
     // inside a fence it takes the fence's, which is already set on the <pre>.
-    code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words [pre_&]:text-[1em]',
+    code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words box-decoration-clone [pre_&]:text-[1em]',
     strong: 'font-semibold text-[color:var(--text-strong)]',
     em: 'italic',
     blockquote: 'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
