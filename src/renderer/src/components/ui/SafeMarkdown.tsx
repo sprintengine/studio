@@ -17,7 +17,9 @@ import { FOCUS_RING_CLASS } from './tokens'
 //     touches `dangerouslySetInnerHTML`.
 //   - A link survives only as http(s). `javascript:`, `data:`, `file:` and every
 //     other scheme render as their label in plain text. `mailto:` too: a mail
-//     link is not something agent text needs to be able to open.
+//     link is not something agent text needs to be able to open. So does a
+//     `#heading` link, which a chat reply would follow in place: `links`
+//     speaks only of web links, and `none` has to mean no control at all.
 //   - An image is never fetched: loading one would send a request to a host the
 //     text chose before anyone had read it. It renders as a quiet chip naming
 //     the picture.
@@ -95,7 +97,7 @@ export function SafeMarkdown({ text, links = 'open', compact = false, className 
   const root = markdownRootProps({ density })
   return (
     <div {...root} className={className ? `${root.className} ${className}` : root.className}>
-      {renderMarkdown(text, { density, bare: true, renderLink, renderImage: renderImageChip })}
+      {renderMarkdown(text, { density, bare: true, renderLink, renderImage: renderImageChip, inPageLinks: false })}
     </div>
   )
 }

@@ -51,9 +51,11 @@ const NOUNS: Record<ConversationBackgroundTaskKind, { order: number; one: string
 }
 
 /**
- * The line that names the work: "Waiting on monitor CI checks",
+ * The line that names the work: "Waiting on monitor: CI checks",
  * "Running: npm run dev", "Waiting on 2 monitors and 1 command". It waits
- * while something will wake the agent, and only runs when nothing will.
+ * while something will wake the agent, and only runs when nothing will. A
+ * description follows a colon because the agent words it, as often an order
+ * to itself ("Watch CI for PR #42") as a name, and either reads after one.
  */
 export function describeBackgroundTasks(tasks: readonly ConversationBackgroundTask[]): string | null {
   if (tasks.length === 0) return null
@@ -61,7 +63,7 @@ export function describeBackgroundTasks(tasks: readonly ConversationBackgroundTa
   if (tasks.length === 1) {
     const [only] = tasks
     const noun = NOUNS[only.kind].one
-    if (waiting) return only.description ? `Waiting on ${noun} ${only.description}` : `Waiting on a ${noun}`
+    if (waiting) return only.description ? `Waiting on ${noun}: ${only.description}` : `Waiting on a ${noun}`
     return only.description ? `Running: ${only.description}` : `Running a ${noun}`
   }
   const counts = new Map<ConversationBackgroundTaskKind, number>()

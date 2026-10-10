@@ -10,7 +10,7 @@
   `readBackgroundTasks` is the reader, `backgroundTasksWakeAgent` says whether
   any will wake the agent (a monitor with a deadline or a task does; a command
   does not), and `describeBackgroundTasks` names them in one line ("Waiting on
-  monitor CI checks", "Running: npm run dev").
+  monitor: CI checks", "Running: npm run dev").
 
 - A tool entry carries `images`, the pictures its step returned, read from
   a `tool_output`'s `images` member (paths that are text, at most eight,

@@ -325,6 +325,14 @@ test('a short identifier in a chat reply moves to the next line whole; a long pa
   expect(classOf(renderChat(`See \`${path}\`.`), 'code')).not.toContain('whitespace-nowrap')
 })
 
+test('inline code that wraps keeps its pill closed on every line, at every density', () => {
+  for (const density of ['document', 'compact', 'chat', 'chat-compact'] as const) {
+    expect(classOf(renderChat('Open `src/renderer/src/utils/markdown.tsx`.', { density }), 'code'), density).toContain(
+      'box-decoration-clone',
+    )
+  }
+})
+
 test('an ordered list that runs past nine widens its gutter to hold the number', () => {
   const short = renderChat('1. a\n2. b')
   const long = renderChat(Array.from({ length: 12 }, (_, index) => `${index + 1}. item`).join('\n'))

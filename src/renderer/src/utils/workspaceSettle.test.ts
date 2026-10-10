@@ -98,9 +98,9 @@ test('workspaceSettle', async () => {
     'a sleeping row is not settled out from under its own wake time',
   )
   assert.equal(
-    shouldAutoSettleWorkspace(ws({ snoozedUntil: NOW - 1 }), NOW),
+    shouldAutoSettleWorkspace(ws({ snoozedUntil: NOW - WORKSPACE_AUTO_SETTLE_AFTER_MS }), NOW),
     true,
-    'once the snooze is spent the usual idle rule resumes',
+    'once the snooze is long spent the usual idle rule resumes',
   )
   assert.equal(
     shouldAutoSettleWorkspace(ws({ highlight: { starred: true, color: null } }), NOW),
@@ -278,4 +278,59 @@ test('workspaceSettle', async () => {
   assert.deepEqual(wakeWorkspacePatch(null), { settledAt: null, settledOverride: null })
 
   console.log('workspaceSettle tests passed')
+})
+
+// A snooze puts a chat aside on purpose, so the quiet it spent asleep is not
+// idleness: the idle clock starts again from the wake.
+const NOW = 1_000_000_000_000
+const DAY = 24 * 60 * 60 * 1000
+
+function snoozable(fields: Partial<Workspace>): Workspace {
+  return {
+    id: 'w',
+    name: 'w',
+    mode: 'standard',
+    createdAt: NOW - 30 * DAY,
+    lastTerminalActivityAt: null,
+    autoSettleEnabled: true,
+    ...fields,
+  } as unknown as Workspace
+}
+
+test('a chat snoozed for a week is not settled on the tick it wakes', () => {
+  const lastActive = NOW - 7 * DAY
+  const chat = snoozable({ lastTerminalActivityAt: lastActive, snoozedUntil: NOW })
+  assert.equal(shouldAutoSettleWorkspace(chat, NOW - 1), false, 'asleep')
+  assert.equal(shouldAutoSettleWorkspace(chat, NOW), false, 'the moment it wakes')
+  assert.equal(shouldAutoSettleWorkspace(chat, NOW + 30_000), false, 'the next sweep tick')
+  assert.equal(
+    decideWorkspaceSettlement({ workspace: chat, now: NOW + 30_000, active: false, busy: false, held: false }),
+    'none',
+  )
+})
+
+test('a woken chat settles once the idle window has passed since it woke', () => {
+  const chat = snoozable({ lastTerminalActivityAt: NOW - 7 * DAY, snoozedUntil: NOW })
+  assert.equal(shouldAutoSettleWorkspace(chat, NOW + WORKSPACE_AUTO_SETTLE_AFTER_MS - 1), false)
+  assert.equal(shouldAutoSettleWorkspace(chat, NOW + WORKSPACE_AUTO_SETTLE_AFTER_MS), true)
+})
+
+test('activity after the wake still moves the idle clock on', () => {
+  const chat = snoozable({ snoozedUntil: NOW, lastUserMessageAt: NOW + DAY })
+  assert.equal(shouldAutoSettleWorkspace(chat, NOW + WORKSPACE_AUTO_SETTLE_AFTER_MS), false)
+  assert.equal(shouldAutoSettleWorkspace(chat, NOW + DAY + WORKSPACE_AUTO_SETTLE_AFTER_MS), true)
+})
+
+test('a chat that was never snoozed settles on its last activity, as before', () => {
+  const quiet = snoozable({ lastTerminalActivityAt: NOW - WORKSPACE_AUTO_SETTLE_AFTER_MS })
+  assert.equal(shouldAutoSettleWorkspace(quiet, NOW), true)
+  assert.equal(shouldAutoSettleWorkspace(snoozable({ lastTerminalActivityAt: NOW - DAY }), NOW), false)
+  assert.equal(
+    shouldAutoSettleWorkspace(
+      snoozable({ lastTerminalActivityAt: NOW - WORKSPACE_AUTO_SETTLE_AFTER_MS, snoozedUntil: null }),
+      NOW,
+    ),
+    true,
+    'a snooze already cleared leaves nothing to count from',
+  )
 })

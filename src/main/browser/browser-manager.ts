@@ -36,6 +36,7 @@ import {
   type BrowserColorScheme,
   type BrowserViewport,
 } from '../../shared/browser-devices'
+import { listProcListeners } from '../../server/web/preview-ports'
 import { safeExternalUrl } from '../ipc/external-url'
 import { parsePsTree, type ProcRow } from '../terminal-subtree-probe'
 import { ensureSidecarDirNoLinks } from '../workspace-sidecar'
@@ -104,6 +105,8 @@ export type BrowserManagerDeps = {
   platform?: NodeJS.Platform
   runPs?: () => Promise<string | null>
   runLsofListening?: () => Promise<string | null>
+  /** Linux without a working `lsof`: the listeners these pids hold, read from `/proc`. */
+  listProcListeners?: (pids: readonly number[]) => Promise<Array<{ pid: number; port: number }>>
   probeServer?: (url: string) => Promise<boolean>
   /**
    * SSH machines' partitions (phase 8): a workspace on one gets that
@@ -208,6 +211,12 @@ export function parseListeningSockets(stdout: string): { pid: number; command: s
     }
   }
   return out
+}
+
+/** The program a `ps args` line runs, without its path or arguments: `/usr/bin/node vite` → `node`. */
+function programName(args: string): string {
+  const program = args.trim().split(/\s+/u)[0] ?? ''
+  return program.slice(program.lastIndexOf('/') + 1)
 }
 
 /** Every pid under `rootPid` (excluding the root — the pty shell itself). */
@@ -1102,8 +1111,8 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
      * Dev servers this workspace's terminals are running: listening TCP ports
      * whose owning process descends from one of the workspace's ptys, kept
      * only if they answer HTTP. Polled by the browser tab's empty state, so
-     * the cost (a `ps`, an `lsof`, a HEAD per port) is paid only while a
-     * person is looking at it.
+     * the cost (a `ps`, an `lsof` or on Linux a read of `/proc`, a HEAD per
+     * port) is paid only while a person is looking at it.
      */
     async listLocalServers(workspaceId: string): Promise<LocalServer[]> {
       const platform = deps.platform ?? process.platform
@@ -1133,8 +1142,24 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
             'pcn',
           ]))
       const lsofOut = await runLsof()
-      if (lsofOut === null) return []
-      const sockets = parseListeningSockets(lsofOut)
+      let sockets: { pid: number; command: string; port: number }[]
+      if (lsofOut !== null) {
+        sockets = parseListeningSockets(lsofOut)
+      } else if (platform === 'linux') {
+        // A slim image or a container often ships no `lsof`, and Linux can say
+        // the same from `/proc` (also the answer when lsof ran and found
+        // nothing, since it exits 1 for that). The command is the program's
+        // name, as lsof's own column gives it.
+        const readProc = deps.listProcListeners ?? ((pids: readonly number[]) => listProcListeners(pids))
+        const commands = new Map(procs.map((proc) => [proc.pid, programName(proc.command)]))
+        sockets = (await readProc(candidatePids)).map(({ pid, port }) => ({
+          pid,
+          port,
+          command: commands.get(pid) ?? '',
+        }))
+      } else {
+        return []
+      }
       const byPort = new Map<number, LocalServer>()
       for (const { root, owned } of ownedByRoot) {
         for (const socket of sockets) {
@@ -1149,8 +1174,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           })
         }
       }
-      const browserSession = ensureSession()
-      const probe = deps.probeServer ?? ((url: string) => probeLocalServer(browserSession, url))
+      const probe = deps.probeServer ?? ((url: string) => probeLocalServer(ensureSession(), url))
       const candidates = [...byPort.values()].sort((a, b) => a.port - b.port)
       const answers = await Promise.all(candidates.map((server) => probe(server.url)))
       return candidates.filter((_server, index) => answers[index])

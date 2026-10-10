@@ -2,7 +2,7 @@ import type { Workspace } from '../types/workspace'
 import type { BranchPullRequest } from '../../../shared/git/pull-request'
 import { deriveWorkspaceRunGlyph } from './workspaceRunGlyph'
 import { isStarred } from './highlight'
-import { isSnoozeUnexpired } from './workspaceSnooze'
+import { isSnoozeUnexpired, workspaceWokeAt } from './workspaceSnooze'
 import { workspaceLastActiveAt, workspaceLastUserMessageAt } from './workspaceRecency'
 import type { LifecycleState } from '../../../shared/lifecycle-state'
 import { isSettledWorkspace } from '../../../shared/workspace-lifecycle'
@@ -62,7 +62,8 @@ export { isSettledWorkspace }
  * (the Remote band has its own model), the rail-hidden hosts, and a row whose
  * module reports a run still in flight.
  *
- * Two ways in: three quiet days, or its pull requests landing
+ * Two ways in: three quiet days (counted from the wake, for a row that has
+ * just come back from a snooze), or its pull requests landing
  * (`pullRequestsLanded`) when Settle on merge is on.
  */
 export function shouldAutoSettleWorkspace(workspace: Workspace, now: number, context: AutoSettleContext = {}): boolean {
@@ -79,7 +80,12 @@ export function shouldAutoSettleWorkspace(workspace: Workspace, now: number, con
   if (workspace.remoteOrigin) return false
   const glyph = deriveWorkspaceRunGlyph(workspace)
   if (glyph && PINNED_RUN_STATES.has(glyph.state)) return false
-  if (now - workspaceLastActiveAt(workspace) >= WORKSPACE_AUTO_SETTLE_AFTER_MS) return true
+  // Quiet since its last activity, or since it woke if that is later. A snooze
+  // is the person putting the chat aside, not the chat going idle: one snoozed
+  // for a week would otherwise wake already a week quiet and settle — its
+  // terminals killed — on the very tick it came back to the list.
+  const quietSince = Math.max(workspaceLastActiveAt(workspace), workspaceWokeAt(workspace, now) ?? 0)
+  if (now - quietSince >= WORKSPACE_AUTO_SETTLE_AFTER_MS) return true
   return context.settleOnMerge === true && pullRequestsLanded(workspace, context.pullRequests ?? [])
 }
 

@@ -7,7 +7,7 @@ test('a monitor reads as work the agent is waiting on, under the working mark', 
   const html = renderToStaticMarkup(
     <BackgroundTasksTrayRow tasks={[{ taskId: 'm', kind: 'monitor', description: 'CI checks' }]} seed="conv_1" />,
   )
-  expect(html).toContain('Waiting on monitor CI checks')
+  expect(html).toContain('Waiting on monitor: CI checks')
   expect(html).toContain('aria-label="Waiting on background work"')
   expect(html).not.toContain('data-tool-glyph')
 })
