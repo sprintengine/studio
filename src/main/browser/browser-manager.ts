@@ -50,11 +50,19 @@ import { ensureSidecarDirNoLinks } from '../workspace-sidecar'
 // The permissions a page may hold. Everything else — camera, microphone,
 // MIDI, USB, local fonts, pointer lock — is denied without a prompt: this is
 // a preview surface for the person's own dev server, not a general browser.
-const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set([
+export const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set([
   'clipboard-read',
   'clipboard-sanitized-write',
   'notifications',
   'geolocation',
+  // The Fullscreen API, so a video's fullscreen button works. Electron asks
+  // this handler before it lets a page go fullscreen. The guest and every
+  // window that hosts one turn off HTML fullscreen's window resize
+  // (`disableHtmlFullscreenWindowResize`, guest-policy.ts and
+  // window-factory.ts), so the page fills the app window's content and the
+  // window itself stays where it is rather than going into the OS's full
+  // screen. Esc brings the pane back.
+  'fullscreen',
 ])
 
 // A favicon past this is not a favicon. Mirrors the renderer's cap.

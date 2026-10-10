@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  ALLOWED_PERMISSIONS,
   TAB_MOVE_GRACE_MS,
   createAgentTabAssignments,
   cropRect,
@@ -135,6 +136,7 @@ test('browser-manager', async () => {
       nodeIntegrationInWorker: false,
       webSecurity: true,
       allowRunningInsecureContent: false,
+      disableHtmlFullscreenWindowResize: true,
       contextIsolation: true,
     })
   })
@@ -212,6 +214,13 @@ const CHROME_UA =
 function electronUserAgent(appToken: string): string {
   return CHROME_UA.replace('Chrome/140.0.0.0', `${appToken} Chrome/140.0.0.0 Electron/38.0.0`)
 }
+
+test("a page may go fullscreen, and the guest's fullscreen never resizes the app window", () => {
+  assert.equal(ALLOWED_PERMISSIONS.has('fullscreen'), true)
+  const prefs: Record<string, unknown> = { disableHtmlFullscreenWindowResize: false }
+  applyGuestWebPreferences(prefs, { partition: BROWSER_PARTITION, src: 'https://example.com/' }, null)
+  assert.equal(prefs.disableHtmlFullscreenWindowResize, true, 'whatever the tag asked for')
+})
 
 test('user agent: a packaged build loses its space-less productName token', () => {
   assert.equal(stripUserAgent(electronUserAgent('SprintEngineStudio/0.4.0')), CHROME_UA)

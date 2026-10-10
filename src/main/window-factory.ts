@@ -225,6 +225,11 @@ export function createMainWindow({
       // epic, decision 1). Only workspace windows host one; see
       // `will-attach-webview` below for what a guest may be.
       webviewTag: true,
+      // A guest's fullscreen is passed on to the window hosting it, which would
+      // otherwise go into the OS's full screen for a video in the browser pane.
+      // With this off here and on the guest, the page fills this window's
+      // content and the window stays as it is.
+      disableHtmlFullscreenWindowResize: true,
     },
   })
 
@@ -475,7 +480,9 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus
       // which can host a terminal, is fine with it: it is told when it is out
       // of sight (below) and stops feeding its terminals the same way.
       backgroundThrottling: true,
-      ...(hostsPane ? { webviewTag: true } : {}),
+      // A popped-out pane hosts browser guests, so it keeps their fullscreen
+      // inside the window the way a workspace window does.
+      ...(hostsPane ? { webviewTag: true, disableHtmlFullscreenWindowResize: true } : {}),
     },
   })
   auxWindows.set(registryKey, win)
