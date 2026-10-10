@@ -1,5 +1,5 @@
 // What the chat's process still runs after its turn ended, as one row of the
-// composer tray: "Waiting on monitor CI checks", "Running: npm run dev". A
+// composer tray: "Waiting on monitor: CI checks", "Running: npm run dev". A
 // monitor wakes the agent when it has something to say, so the chat is not
 // done and the row wears the working mark; a shell the agent left running
 // (a dev server) is not work it will come back to, so that row is quiet and
