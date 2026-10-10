@@ -11,6 +11,7 @@ import { homedir } from 'node:os'
 import { executionHostLabel, LOCAL_HOST_ID, type ExecutionHostSummary } from '../../shared/execution-host'
 import { wslToWindowsPath } from '../../shared/host-paths'
 import { detectCliBatch } from '../cli-runtime-install'
+import { withGitExecutable } from '../git-executable'
 import { runSpawnDescriptor } from '../process-run'
 import {
   killCliSessionSurvivors,
@@ -72,14 +73,19 @@ export function createWindowsHost(): ExecutionHost {
         { file: argv[0] ?? '', args: argv.slice(1) },
         { timeoutMs: options.timeoutMs, ...(options.cwd ? { cwd: options.cwd } : {}) },
       ),
-    runGit: (cwd, args, options) =>
-      runSpawnDescriptor(
-        { file: 'git', args: ['-C', cwd, ...args], ...(options.stdin !== undefined ? { stdin: options.stdin } : {}) },
-        {
-          env: { ...process.env, ...options.env },
-          ...(options.timeoutMs !== null ? { timeoutMs: options.timeoutMs } : {}),
-        },
-      ),
+    // The real git.exe rather than Git for Windows' launcher; see git-executable.ts.
+    runGit: (cwd, args, options) => {
+      const env = { ...process.env, ...options.env }
+      return withGitExecutable(
+        env,
+        (file) =>
+          runSpawnDescriptor(
+            { file, args: ['-C', cwd, ...args], ...(options.stdin !== undefined ? { stdin: options.stdin } : {}) },
+            { env, ...(options.timeoutMs !== null ? { timeoutMs: options.timeoutMs } : {}) },
+          ),
+        { didNotStart: (outcome) => outcome.spawnFailed === true },
+      )
+    },
     dispose: async () => undefined,
   }
 }
